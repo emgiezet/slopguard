@@ -1,0 +1,11 @@
+compact: true
+quiet: true
+output: json
+download-external-modules: false
+framework:
+  - terraform
+  - kubernetes
+  - helm
+  - dockerfile
+  - github_actions
+skip-check: []   # exceptions only via rules/exceptions.yaml with justification and expiry date

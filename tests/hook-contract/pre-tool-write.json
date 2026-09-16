@@ -1,0 +1,10 @@
+{
+  "session_id": "sess-abc123",
+  "cwd": "/home/user/myproject",
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Write",
+  "tool_input": {"file_path": "/home/user/myproject/secret.py", "content": "password = 'hunter2'"},
+  "tool_use_id": "toolu_write_0001",
+  "agent_id": null,
+  "agent_type": null
+}

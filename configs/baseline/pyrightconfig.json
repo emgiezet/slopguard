@@ -1,0 +1,6 @@
+{
+  "typeCheckingMode": "standard",
+  "reportMissingImports": "error",
+  "reportOptionalMemberAccess": "error",
+  "reportUnnecessaryTypeIgnoreComment": "warning"
+}

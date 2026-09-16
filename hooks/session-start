@@ -1,0 +1,113 @@
+#!/usr/bin/env bash
+# hooks/session-start — SessionStart hook: stack detection + always-on agent rules.
+
+set -uo pipefail
+
+HOOKS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+PLUGIN_ROOT="$(cd "${HOOKS_DIR}/.." && pwd)"
+: "${CLAUDE_PLUGIN_ROOT:=$PLUGIN_ROOT}"
+: "${CLAUDE_PLUGIN_DATA:=${XDG_DATA_HOME:-$HOME/.local/share}/claude/plugins/slop-guard}"
+: "${CLAUDE_PROJECT_DIR:=${PWD}}"
+
+# shellcheck source=../lib/hook.sh
+. "${CLAUDE_PLUGIN_ROOT}/lib/hook.sh"
+# shellcheck source=../lib/state.sh
+. "${CLAUDE_PLUGIN_ROOT}/lib/state.sh"
+# shellcheck source=../lib/tools.sh
+. "${CLAUDE_PLUGIN_ROOT}/lib/tools.sh"
+# shellcheck source=../lib/detect.sh
+. "${CLAUDE_PLUGIN_ROOT}/lib/detect.sh"
+
+main() {
+    hook_input
+    SESSION_ID="$(hook_field .session_id)"
+    AGENT_ID="$(hook_field .agent_id)"
+    : "${SESSION_ID:="unknown-$$"}"
+
+    state_prune
+    state_init "$SESSION_ID" "${AGENT_ID:-}"
+
+    local _d="${CLAUDE_PROJECT_DIR:-.}" _stacks
+    local _php_cfg _go_cfg _python_cfg _node_cfg
+    _stacks="$(detect_stacks "$_d")"
+    _php_cfg="$(tool_config_source "$(tool_config_path phpstan "$_d")")"
+    _go_cfg="$(tool_config_source "$(tool_config_path golangci-lint "$_d")")"
+    _python_cfg="$(tool_config_source "$(tool_config_path ruff "$_d")")"
+    _node_cfg="$(tool_config_source "$(tool_config_path eslint-stack "$_d")")"
+    if [ -f "${_d}/pyproject.toml" ] \
+        && grep -Eq '^\[tool\.(mypy|pyright)\]' "${_d}/pyproject.toml"; then
+        _python_cfg="project"
+    fi
+
+    local _sdir _tools_json tool resolved source version expected matches plugin_prefix
+    local config_path config_source
+    local -a _missing_tools=()
+    _sdir="$(state_dir "$SESSION_ID" "${AGENT_ID:-}")"
+    _tools_json='[]'
+    while IFS= read -r tool; do
+        expected="$(lock_version "$tool")"
+        resolved="$(resolve_tool "$tool")"
+        source="missing"
+        version=""
+        matches=false
+        config_path="$(tool_config_path "$tool" "$_d")"
+        config_source="$(tool_config_source "$config_path")"
+        if [ -n "$resolved" ]; then
+            plugin_prefix="${CLAUDE_PLUGIN_DATA}/tools/"
+            case "$resolved" in
+                "${plugin_prefix}"*) source="plugin" ;;
+                */vendor/bin/*|*/node_modules/.bin/*|*/.venv/bin/*) source="project" ;;
+                "${_d}"/*) source="project" ;;
+                *) source="PATH" ;;
+            esac
+            version="$(tool_version_output "$tool" "$resolved" | head -1 || true)"
+            tool_version_matches "$tool" "$resolved" && matches=true
+        fi
+        [ -n "$resolved" ] || _missing_tools+=("$tool")
+        _tools_json="$(jq -c \
+            --arg tool "$tool" --arg source "$source" --arg path "$resolved" \
+            --arg version "$version" --arg expected "$expected" \
+            --arg config_path "$config_path" --arg config_source "$config_source" \
+            --argjson matches "$matches" \
+            '. + [{name:$tool,source:$source,path:$path,version:$version,
+                    expected_version:$expected,version_matches:$matches,
+                    config_path:$config_path,config_source:$config_source}]' \
+            <<< "$_tools_json")"
+    done < <(lock_tools)
+
+    jq \
+        --argjson stacks "$(printf '%s' "${_stacks:-}" | jq -Rcs 'split(" ") | map(select(length > 0))')" \
+        --arg php_cfg "$_php_cfg" \
+        --arg go_cfg "$_go_cfg" \
+        --arg python_cfg "$_python_cfg" \
+        --arg node_cfg "$_node_cfg" \
+        --argjson tools "$_tools_json" \
+        '.stacks = $stacks
+         | .tools = $tools
+         | .config_sources = {php: $php_cfg, go: $go_cfg, python: $python_cfg, node: $node_cfg}' \
+        "${_sdir}/profile.json" > "${_sdir}/profile.json.tmp" \
+        && mv "${_sdir}/profile.json.tmp" "${_sdir}/profile.json"
+
+    local _missing_marker="${_sdir}/missing-tools-reported"
+    if [ "${#_missing_tools[@]}" -gt 0 ] && [ ! -f "$_missing_marker" ]; then
+        local _missing_list
+        _missing_list="$(IFS=', '; printf '%s' "${_missing_tools[*]}")"
+        printf 'slop-guard: missing tools: %s. Install: %s/bin/slopguard doctor --install\n' \
+            "$_missing_list" "${CLAUDE_PLUGIN_ROOT}"
+        : > "$_missing_marker"
+    fi
+
+    printf 'slop-guard: stacks detected: %s\n' "${_stacks:-none}"
+    cat <<'DIGEST'
+slop-guard active — always-on rules (full text: skill agent-discipline)
+AP-AGENT-001: linter suppressions without a reason (≥10 chars) are blocked.
+AP-AGENT-002: lowering tool thresholds or growing lint baselines requires human review.
+AP-AGENT-003: skipping or deleting tests to make CI green requires confirmation.
+AP-AGENT-004: new dependency installs need confirmation; curl|sh is always blocked.
+AP-AGENT-005: .env*, private keys, and credential files are denied for reading.
+AP-AGENT-006: hard-coded credentials in written files are detected and blocked.
+AP-AGENT-007: edits outside the targeted diff scope are flagged at turn end.
+DIGEST
+}
+
+main "$@"

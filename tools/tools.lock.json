@@ -1,0 +1,262 @@
+{
+  "schema": 1,
+  "tools": {
+    "betterleaks": {
+      "version": "1.8.1",
+      "assets": {
+        "linux-amd64": {
+          "url": "https://github.com/betterleaks/betterleaks/releases/download/v1.8.1/betterleaks_1.8.1_linux_x64.tar.gz",
+          "sha256": "efa407244e1ea8e35f582b8a42becdeac08bdead04f68eb752adda722d583c2a"
+        },
+        "linux-arm64": {
+          "url": "https://github.com/betterleaks/betterleaks/releases/download/v1.8.1/betterleaks_1.8.1_linux_arm64.tar.gz",
+          "sha256": "bbb578b12a2f65d7082ab436abf37724232bc71d8a078e3c41336574420f1b48"
+        },
+        "darwin-amd64": {
+          "url": "https://github.com/betterleaks/betterleaks/releases/download/v1.8.1/betterleaks_1.8.1_darwin_x64.tar.gz",
+          "sha256": "6abc37df76f881cffae406aa2cec72bea6e6ae64b4e771b3ed21b4aac472ed10"
+        },
+        "darwin-arm64": {
+          "url": "https://github.com/betterleaks/betterleaks/releases/download/v1.8.1/betterleaks_1.8.1_darwin_arm64.tar.gz",
+          "sha256": "8e80f33b5f2a7426b390347b9fd466033723cb94b6bdffa7572632e2eaec964e"
+        }
+      },
+      "bin": "betterleaks"
+    },
+    "checkov": {
+      "version": "3.3.16",
+      "python_lock": "tools/python/requirements.lock",
+      "bin": "checkov"
+    },
+    "eslint-stack": {
+      "version": "9.35.0",
+      "node_lock": "tools/node/package-lock.json",
+      "bin": "eslint"
+    },
+    "golangci-lint": {
+      "version": "2.13.2",
+      "assets": {
+        "linux-amd64": {
+          "url": "https://github.com/golangci/golangci-lint/releases/download/v2.13.2/golangci-lint-2.13.2-linux-amd64.tar.gz",
+          "sha256": "2277d43b98ec0054280f2ac26b53268bae97682444678a59a657dd565da021d6"
+        },
+        "linux-arm64": {
+          "url": "https://github.com/golangci/golangci-lint/releases/download/v2.13.2/golangci-lint-2.13.2-linux-arm64.tar.gz",
+          "sha256": "a2a4e0065aa41be71f7c5ac90f271b61751331e5d04314e62afe4027855f0893"
+        },
+        "darwin-amd64": {
+          "url": "https://github.com/golangci/golangci-lint/releases/download/v2.13.2/golangci-lint-2.13.2-darwin-amd64.tar.gz",
+          "sha256": "8a13aaf9cbbb1dee52824e862cf0d0720e5bb97c1f4260d1e51623a09492b57b"
+        },
+        "darwin-arm64": {
+          "url": "https://github.com/golangci/golangci-lint/releases/download/v2.13.2/golangci-lint-2.13.2-darwin-arm64.tar.gz",
+          "sha256": "f4bf83f0b64f055c42b28fc9a38861839f69c096e61c788e72dfaae412011789"
+        }
+      },
+      "bin": "golangci-lint"
+    },
+    "hadolint": {
+      "version": "2.14.0",
+      "bin": "hadolint",
+      "assets": {
+        "linux-amd64": {
+          "url": "https://github.com/hadolint/hadolint/releases/download/v2.14.0/hadolint-linux-x86_64",
+          "sha256": "6bf226944684f56c84dd014e8b979d27425c0148f61b3bd99bcc6f39e9dc5a47"
+        },
+        "linux-arm64": {
+          "url": "https://github.com/hadolint/hadolint/releases/download/v2.14.0/hadolint-linux-arm64",
+          "sha256": "331f1d3511b84a4f1e3d18d52fec284723e4019552f4f47b19322a53ce9a40ed"
+        },
+        "darwin-amd64": {
+          "url": "https://github.com/hadolint/hadolint/releases/download/v2.14.0/hadolint-macos-x86_64",
+          "sha256": "2b69a853433f1eca522ffb921cd490bd1321424d03331fd8390f93b7fb4a02e9"
+        },
+        "darwin-arm64": {
+          "url": "https://github.com/hadolint/hadolint/releases/download/v2.14.0/hadolint-macos-arm64",
+          "sha256": "3625e2e9f43dcfe7bd38738a5f5520ed50ce39ed28485266e6803dd7bc197b10"
+        }
+      }
+    },
+    "jq": {
+      "version": "1.8.2",
+      "assets": {
+        "linux-amd64": {
+          "url": "https://github.com/jqlang/jq/releases/download/jq-1.8.2/jq-linux-amd64",
+          "sha256": "b1c22172dd303f3be49e935aa56aa48a8b7a46e0bc838b4997d3bb451495870f"
+        },
+        "linux-arm64": {
+          "url": "https://github.com/jqlang/jq/releases/download/jq-1.8.2/jq-linux-arm64",
+          "sha256": "8b85c817833814ddca00a144c33705546355afccf0cf39b188f3cdb48b852309"
+        },
+        "darwin-amd64": {
+          "url": "https://github.com/jqlang/jq/releases/download/jq-1.8.2/jq-macos-amd64",
+          "sha256": "e94b266e3c26690550006abe63152b782280f4e14374accdf04cbde844f00bc0"
+        },
+        "darwin-arm64": {
+          "url": "https://github.com/jqlang/jq/releases/download/jq-1.8.2/jq-macos-arm64",
+          "sha256": "2d75340ba57a4b4b4c8708a21c2dc8e958a48aaa8bba13b27f77f6e4c0eca07e"
+        }
+      },
+      "bin": "jq"
+    },
+    "kube-linter": {
+      "version": "0.8.3",
+      "bin": "kube-linter",
+      "assets": {
+        "linux-amd64": {
+          "url": "https://github.com/stackrox/kube-linter/releases/download/v0.8.3/kube-linter-linux",
+          "sha256": "618d299a3e2839c8ca9d86fce0db617be0fba41f0fecbbbfb7fbf1c04299fae1"
+        },
+        "linux-arm64": {
+          "url": "https://github.com/stackrox/kube-linter/releases/download/v0.8.3/kube-linter-linux_arm64",
+          "sha256": "9c39d35252e0dcafb16b26197b9e93ba578e44eb402c3c6660fc94e08f94094f"
+        },
+        "darwin-amd64": {
+          "url": "https://github.com/stackrox/kube-linter/releases/download/v0.8.3/kube-linter-darwin",
+          "sha256": "d935e2bc89e272c74227cdc4ac4dba35f468e0e486e846e5892231a301c91a67"
+        },
+        "darwin-arm64": {
+          "url": "https://github.com/stackrox/kube-linter/releases/download/v0.8.3/kube-linter-darwin_arm64",
+          "sha256": "662277a6a267ba2cb1371b56539a371872ef142b196fa0d87195e4213773cdf8"
+        }
+      }
+    },
+    "opengrep": {
+      "version": "1.30.0",
+      "assets": {
+        "linux-amd64": {
+          "url": "https://github.com/opengrep/opengrep/releases/download/v1.30.0/opengrep_manylinux_x86",
+          "sha256": "35779bdd72e92129c8df2a77f0c55e8c08356801ea92591ef32108d6b28d564c"
+        },
+        "linux-arm64": {
+          "url": "https://github.com/opengrep/opengrep/releases/download/v1.30.0/opengrep_manylinux_aarch64",
+          "sha256": "a5d5a4a58ba5d46ff51e921663da1c2bba38f4b03987f4aeec87f16c6ad3ecae"
+        },
+        "darwin-arm64": {
+          "url": "https://github.com/opengrep/opengrep/releases/download/v1.30.0/opengrep_osx_arm64",
+          "sha256": "0f5bc3dec09d995c61331a4017b856ede508f90d95b018d95f1dc6166be89fdd"
+        },
+        "darwin-amd64": {
+          "url": "https://github.com/opengrep/opengrep/releases/download/v1.30.0/opengrep_osx_x86",
+          "sha256": "650772a849a2986880982b7dea0371f96a75d354de95f94e8c1a2e6f8f6262d1"
+        }
+      },
+      "bin": "opengrep"
+    },
+    "phpstan": {
+      "version": "2.2.13",
+      "bin": "phpstan",
+      "assets": {
+        "linux-amd64": {
+          "url": "https://github.com/phpstan/phpstan/releases/download/2.2.13/phpstan.phar",
+          "sha256": "a3293d850a9966fbef43e39d04f2b081b8eec35839126c43a54684f21b10ad69"
+        },
+        "linux-arm64": {
+          "url": "https://github.com/phpstan/phpstan/releases/download/2.2.13/phpstan.phar",
+          "sha256": "a3293d850a9966fbef43e39d04f2b081b8eec35839126c43a54684f21b10ad69"
+        },
+        "darwin-amd64": {
+          "url": "https://github.com/phpstan/phpstan/releases/download/2.2.13/phpstan.phar",
+          "sha256": "a3293d850a9966fbef43e39d04f2b081b8eec35839126c43a54684f21b10ad69"
+        },
+        "darwin-arm64": {
+          "url": "https://github.com/phpstan/phpstan/releases/download/2.2.13/phpstan.phar",
+          "sha256": "a3293d850a9966fbef43e39d04f2b081b8eec35839126c43a54684f21b10ad69"
+        }
+      }
+    },
+    "psalm": {
+      "version": "6.16.1",
+      "bin": "psalm",
+      "assets": {
+        "linux-amd64": {
+          "url": "https://github.com/vimeo/psalm/releases/download/6.16.1/psalm.phar",
+          "sha256": "7ace71e4f698466e7e16810679a1895ea623060579aff46fcf9fd0f1c09abe00"
+        },
+        "linux-arm64": {
+          "url": "https://github.com/vimeo/psalm/releases/download/6.16.1/psalm.phar",
+          "sha256": "7ace71e4f698466e7e16810679a1895ea623060579aff46fcf9fd0f1c09abe00"
+        },
+        "darwin-amd64": {
+          "url": "https://github.com/vimeo/psalm/releases/download/6.16.1/psalm.phar",
+          "sha256": "7ace71e4f698466e7e16810679a1895ea623060579aff46fcf9fd0f1c09abe00"
+        },
+        "darwin-arm64": {
+          "url": "https://github.com/vimeo/psalm/releases/download/6.16.1/psalm.phar",
+          "sha256": "7ace71e4f698466e7e16810679a1895ea623060579aff46fcf9fd0f1c09abe00"
+        }
+      }
+    },
+    "ruff": {
+      "version": "0.16.6",
+      "python_lock": "tools/python/requirements.lock",
+      "bin": "ruff"
+    },
+    "shellcheck": {
+      "version": "0.11.0",
+      "assets": {
+        "linux-amd64": {
+          "url": "https://github.com/koalaman/shellcheck/releases/download/v0.11.0/shellcheck-v0.11.0.linux.x86_64.tar.gz",
+          "sha256": "b7af85e41cc99489dcc21d66c6d5f3685138f06d34651e6d34b42ec6d54fe6f6"
+        },
+        "linux-arm64": {
+          "url": "https://github.com/koalaman/shellcheck/releases/download/v0.11.0/shellcheck-v0.11.0.linux.aarch64.tar.gz",
+          "sha256": "68a8133197a50beb8803f8d42f9908d1af1c5540d4bb05fdfca8c1fa47decefc"
+        },
+        "darwin-amd64": {
+          "url": "https://github.com/koalaman/shellcheck/releases/download/v0.11.0/shellcheck-v0.11.0.darwin.x86_64.tar.gz",
+          "sha256": "c2c15e08df0e8fbc374c335b230a7ee958c313fa5714817a59aa59f1aa594f51"
+        },
+        "darwin-arm64": {
+          "url": "https://github.com/koalaman/shellcheck/releases/download/v0.11.0/shellcheck-v0.11.0.darwin.aarch64.tar.gz",
+          "sha256": "339b930feb1ea764467013cc1f72d09cd6b869ebf1013296ba9055ab2ffbd26f"
+        }
+      },
+      "bin": "shellcheck"
+    },
+    "tflint": {
+      "version": "0.64.0",
+      "bin": "tflint",
+      "assets": {
+        "linux-amd64": {
+          "url": "https://github.com/terraform-linters/tflint/releases/download/v0.64.0/tflint_linux_amd64.zip",
+          "sha256": "cca9d13e2e1d7a2c627af60ff899a3c9b74212899416aeb96ec764d2ef954537"
+        },
+        "linux-arm64": {
+          "url": "https://github.com/terraform-linters/tflint/releases/download/v0.64.0/tflint_linux_arm64.zip",
+          "sha256": "560da89aacf59389d4eb029730dd5b109b7288096c32f2726a0d9e783a5ea8eb"
+        },
+        "darwin-amd64": {
+          "url": "https://github.com/terraform-linters/tflint/releases/download/v0.64.0/tflint_darwin_amd64.zip",
+          "sha256": "0f3a9fd17526014646a2dfc3f9122f7b4161abe3d6b0f0f03f9014483ddf4d19"
+        },
+        "darwin-arm64": {
+          "url": "https://github.com/terraform-linters/tflint/releases/download/v0.64.0/tflint_darwin_arm64.zip",
+          "sha256": "2496e9cb3d24992d553b45e7c87a0fdc9449ca975233876247a9bfeda857e6c0"
+        }
+      }
+    },
+    "zizmor": {
+      "version": "1.30.1",
+      "bin": "zizmor",
+      "assets": {
+        "linux-amd64": {
+          "url": "https://github.com/zizmorcore/zizmor/releases/download/v1.30.1/zizmor-x86_64-unknown-linux-gnu.tar.gz",
+          "sha256": "e65324f4430c2717591937edcec90ccbefaf14c174f8ec9415e03ca875b46e1a"
+        },
+        "linux-arm64": {
+          "url": "https://github.com/zizmorcore/zizmor/releases/download/v1.30.1/zizmor-aarch64-unknown-linux-gnu.tar.gz",
+          "sha256": "7ff1dce33bdd18fd2a4affe63bdd47efcccca97b2cec1c1863ec26e9e2647540"
+        },
+        "darwin-amd64": {
+          "url": "https://github.com/zizmorcore/zizmor/releases/download/v1.30.1/zizmor-x86_64-apple-darwin.tar.gz",
+          "sha256": "10e6b18b11ea07e515a16f0f0518c7b07527bc9977c1fd5698181ce7f3554202"
+        },
+        "darwin-arm64": {
+          "url": "https://github.com/zizmorcore/zizmor/releases/download/v1.30.1/zizmor-aarch64-apple-darwin.tar.gz",
+          "sha256": "e28d22b087f9ebb8d99da6e740d348c930f559961c7c3f12badda54f882195a2"
+        }
+      }
+    }
+  }
+}

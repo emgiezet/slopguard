@@ -1,0 +1,101 @@
+# rules/policies/always-on.yaml — AP-AGENT-* always-on agent-discipline rules.
+#
+# These rules apply in every session regardless of language or framework.
+# hooks/session-start injects the digest into context (§8.8).
+# The 'enforcement' field names which hook checks each rule; consuming hooks
+# filter this file to their own id (pre-write, pre-bash, pre-read, stop-gate).
+#
+# decision values:
+#   deny  — blocked unconditionally; hook exits 2 or returns permissionDecision:deny
+#   ask   — user confirmation required; permissionDecision:ask
+#   warn  — no gate; flagged in additionalContext or Stop report
+#
+# skill_reference: agent-discipline    (full text loaded on demand)
+# digest_max_lines: 15                 (§8.8 hard budget)
+# digest_max_chars: 1500               (§8.8 hard budget)
+
+rules:
+  - id: AP-AGENT-001
+    title: Linter suppression without justification
+    description: >-
+      A suppression comment (// nolint, # noqa, @ts-ignore, eslint-disable, etc.)
+      is blocked when it contains no inline reason of at least 10 characters.
+      With a sufficient reason, the suppression is logged as info; if the silenced
+      rule carries severity blocker, it escalates to ask even with a reason.
+    enforcement: pre-write
+    decision: deny   # reason absent → deny; blocker rule + reason → ask
+    severity: blocker
+    spec_ref: "§7.2-B"
+
+  - id: AP-AGENT-002
+    title: Lowering quality-gate thresholds or growing lint baselines
+    description: >-
+      Edits to tool config files (phpstan.neon, .golangci.yml, ruff.toml,
+      eslint.config.*, tsconfig.json strict flags, etc.) or baseline files
+      (phpstan-baseline.neon, psalm-baseline.xml) that loosen thresholds or
+      extend ignore lists require human review.
+    enforcement: pre-write
+    decision: ask
+    severity: error
+    spec_ref: "§7.2-C"
+
+  - id: AP-AGENT-003
+    title: Skipping or deleting tests
+    description: >-
+      Adding skip/ignore markers (t.Skip, it.skip, @pytest.mark.skip,
+      markTestSkipped, xit, test.skip, describe.skip, @unittest.skip) or
+      deleting an entire test file requires confirmation.
+    enforcement: pre-write, pre-bash
+    decision: ask
+    severity: error
+    spec_ref: "§7.2-D"
+
+  - id: AP-AGENT-004
+    title: Installing unverified dependencies or running remote scripts
+    description: >-
+      New package installs (npm add/install <pkg>, pip install <pkg>, uv add,
+      poetry add, go get @latest, composer require) require confirmation for
+      typosquatting and supply-chain review. Piping a remote script directly
+      to a shell (curl|sh, wget|bash, etc.) is always denied.
+    enforcement: pre-bash
+    decision: deny    # curl|sh → deny; new package install → ask
+    severity: blocker
+    spec_ref: "§7.1"
+
+  - id: AP-AGENT-005
+    title: Reading secret files
+    description: >-
+      .env, .env.*, private keys (*.pem, *.key, id_rsa*, id_ed25519*),
+      credentials files, AWS/kube config, and files under secrets/ are denied
+      for reading via the Read tool or shell cat/grep/base64 commands.
+    enforcement: pre-read, pre-bash
+    decision: deny
+    severity: blocker
+    spec_ref: "§7.3"
+
+  - id: AP-AGENT-006
+    title: Writing real credentials, even temporarily
+    description: >-
+      Hard-coded secrets, API keys, tokens, or private keys in any written file
+      content are detected by Betterleaks before the write lands on disk and
+      denied. No credential is acceptable "just for a test".
+    enforcement: pre-write
+    decision: deny
+    severity: blocker
+    spec_ref: "§7.2-A, §6.10"
+
+  - id: AP-AGENT-007
+    title: Out-of-scope edits during finding remediation
+    description: >-
+      Reformatting whole files, refactoring unrelated code, or accumulating
+      changes outside the targeted hunks while fixing findings. Detected at
+      turn end (Stop) by comparing total changed lines against the diff scope
+      of the finding being addressed. Reported as a warn, not a block.
+    enforcement: stop-gate
+    decision: warn
+    severity: warn
+    spec_ref: "§8.8"
+
+skill_reference: agent-discipline
+digest_max_lines: 15
+digest_max_chars: 1500

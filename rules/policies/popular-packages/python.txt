@@ -1,0 +1,10 @@
+boto3
+django
+fastapi
+flask
+numpy
+pandas
+pydantic
+pytest
+requests
+sqlalchemy

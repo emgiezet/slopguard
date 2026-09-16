@@ -1,0 +1,17 @@
+<?xml version="1.0"?>
+<psalm
+    errorLevel="3"
+    findUnusedCode="false"
+    findUnusedBaselineEntry="true"
+    cacheDirectory="${SLOPGUARD_CACHE_DIR}/psalm"
+    xmlns="https://getpsalm.org/schema/config">
+    <projectFiles>
+        <directory name="app"/>
+        <directory name="src"/>
+        <ignoreFiles>
+            <directory name="vendor"/>
+        </ignoreFiles>
+    </projectFiles>
+    <!-- Laravel: dispatcher adds when psalm/plugin-laravel is available -->
+    <!-- <plugins><pluginClass class="Psalm\LaravelPlugin\Plugin"/></plugins> -->
+</psalm>

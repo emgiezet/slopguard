@@ -1,0 +1,13 @@
+includes:
+    # Included conditionally by dispatcher depending on what is in vendor/:
+    # - vendor/phpstan/phpstan-strict-rules/rules.neon
+    # - vendor/phpstan/phpstan-deprecation-rules/rules.neon
+    # - vendor/larastan/larastan/extension.neon          (Laravel)
+    # - vendor/phpstan/phpstan-symfony/extension.neon    (Symfony)
+    # - vendor/phpstan/phpstan-doctrine/extension.neon   (Doctrine)
+
+parameters:
+    level: 8
+    tmpDir: %env.SLOPGUARD_CACHE_DIR%/phpstan
+    reportUnmatchedIgnoredErrors: true
+    treatPhpDocTypesAsCertain: false

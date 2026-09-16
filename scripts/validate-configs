@@ -1,0 +1,388 @@
+#!/usr/bin/env bash
+# validate-configs — validate every baseline config against the pinned tool version.
+# See spec §9.3.
+#
+# Run from plugins/slop-guard/ or any path; the script resolves its own root.
+#
+# Outcomes per tool:
+#   PASS — tool present and accepted the config.
+#   FAIL — tool present and rejected the config or named an unknown rule.
+#   SKIP — a required tool or prerequisite is absent. Any skip fails this gate.
+#
+# Exits non-zero when a validation fails or is skipped.
+
+set -uo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PLUGIN_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+cd "${PLUGIN_ROOT}" || { printf "error: cannot cd to plugin root: %s\n" "${PLUGIN_ROOT}" >&2; exit 1; }
+
+: "${CLAUDE_PLUGIN_ROOT:=${PLUGIN_ROOT}}"
+: "${CLAUDE_PLUGIN_DATA:=${XDG_DATA_HOME:-$HOME/.local/share}/claude/plugins/slop-guard}"
+# shellcheck source=../lib/tools.sh
+. "${PLUGIN_ROOT}/lib/tools.sh"
+while IFS= read -r _managed_name; do
+    _managed_path="$(resolve_tool "$_managed_name" 2>/dev/null || true)"
+    if [ -n "$_managed_path" ]; then
+        PATH="$(dirname "$_managed_path"):${PATH}"
+    fi
+done <<< "$(lock_tools)"
+export PATH
+
+PASS=0
+SKIP=0
+FAIL=0
+
+# Temp dir for harness files (psalm config, phpstan cache).
+# Placed under ${TMPDIR:-/tmp} so it is outside the repository working tree.
+# Trap covers EXIT, INT, TERM, and HUP so Ctrl-C does not leave leftovers.
+_TMPDIR=$(mktemp -d "${TMPDIR:-/tmp}/slopguard-validate.XXXXXX") || exit 1
+_cleanup() { rm -rf "${_TMPDIR}"; }
+trap '_cleanup; exit 130' INT TERM HUP; trap _cleanup EXIT
+
+# ---------------------------------------------------------------------------
+# helpers
+# ---------------------------------------------------------------------------
+
+tool_present() {
+    command -v "$1" > /dev/null 2>&1
+}
+
+_pass() {
+    printf "PASS  %-35s\n" "$1"
+    PASS=$(( PASS + 1 ))
+}
+
+_skip() {
+    printf "SKIP  %-35s  (%s)\n" "$1" "$2"
+    SKIP=$(( SKIP + 1 ))
+}
+
+_fail() {
+    printf "FAIL  %-35s  %s\n" "$1" "$2"
+    FAIL=$(( FAIL + 1 ))
+}
+
+_info() {
+    printf "INFO  %s\n" "$1"
+}
+
+# Run a validation command; PASS on exit-0, FAIL otherwise.
+# First arg is the label; remaining args are the command.
+run_check() {
+    local label="$1"
+    shift
+    local out
+    if out=$("$@" 2>&1); then
+        _pass "${label}"
+    else
+        _fail "${label}" "${out}"
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# §9.3 — one row per tool
+# ---------------------------------------------------------------------------
+
+printf "=== Slop Guard: baseline config validation ===\n"
+printf "Plugin root: %s\n\n" "${PLUGIN_ROOT}"
+
+# --- golangci-lint ----------------------------------------------------------
+# Spec: golangci-lint config verify --config configs/baseline/.golangci.yml
+# golangci-lint v1 does not have a 'config verify' subcommand (added in v2).
+# The config uses 'version: "2"' format, unparseable by v1.
+if ! tool_present golangci-lint; then
+    _skip "golangci-lint" "tool not installed"
+elif golangci-lint config --help 2>&1 | grep -qF "verify"; then
+    run_check "golangci-lint" \
+        golangci-lint config verify --config configs/baseline/.golangci.yml
+else
+    _gl_ver=$(golangci-lint --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || printf "unknown")
+    _skip "golangci-lint" \
+        "v${_gl_ver} lacks 'config verify'; requires golangci-lint v2 (config uses version:\"2\" format)"
+fi
+
+# --- PHPStan ----------------------------------------------------------------
+# Spec: vendor/bin/phpstan analyse -c configs/baseline/phpstan.neon --debug tests/fixtures/php/good
+# phpstan.neon references %env.SLOPGUARD_CACHE_DIR% — export a temp dir so the env var resolves.
+if ! tool_present phpstan; then
+    _skip "PHPStan" "tool not installed"
+else
+    run_check "PHPStan" \
+        env SLOPGUARD_CACHE_DIR="${_TMPDIR}/phpstan" \
+        phpstan analyse \
+        -c configs/baseline/phpstan.neon \
+        --debug \
+        tests/fixtures/php/good
+fi
+
+# --- Psalm ------------------------------------------------------------------
+# Spec: vendor/bin/psalm -c configs/baseline/psalm.xml --no-cache tests/fixtures/php/good
+# psalm.xml declares projectFiles app/ and src/ (consumer defaults); the dispatcher generates
+# a per-project config with paths from composer.json autoload.psr-4 at runtime. Here we use
+# a harness config pointing at the fixture tree so the row measures the config, not the harness.
+# Psalm resolves <directory name="…"/> relative to the config file's own location
+# (resolveFromConfigFile defaults true), so we write an absolute path.
+if ! tool_present psalm; then
+    _skip "Psalm" "tool not installed"
+else
+    _psalm_cfg="${_TMPDIR}/psalm-harness.xml"
+    # Heredoc delimiter unquoted → ${PLUGIN_ROOT} expands here.
+    cat > "${_psalm_cfg}" <<PSALMEOF
+<?xml version="1.0"?>
+<psalm errorLevel="3" findUnusedCode="false" findUnusedBaselineEntry="true"
+       xmlns="https://getpsalm.org/schema/config">
+    <projectFiles>
+        <directory name="${PLUGIN_ROOT}/tests/fixtures/php/good"/>
+    </projectFiles>
+</psalm>
+PSALMEOF
+    run_check "Psalm" \
+        psalm \
+        -c "${_psalm_cfg}" \
+        --no-cache \
+        tests/fixtures/php/good
+fi
+
+# --- Ruff -------------------------------------------------------------------
+# Spec: ruff check --config configs/baseline/ruff.toml --show-settings tests/fixtures/python/good
+if ! tool_present ruff; then
+    _skip "ruff" "tool not installed"
+else
+    run_check "ruff" \
+        ruff check \
+        --config configs/baseline/ruff.toml \
+        --show-settings \
+        tests/fixtures/python/good
+fi
+
+# Spec: eslint --config configs/baseline/eslint.config.mjs --print-config tests/fixtures/ts/good/sample.tsx
+if ! tool_present eslint; then
+    _skip "ESLint" "tool not installed"
+else
+    _eslint_cfg="configs/baseline/eslint.config.mjs"
+    if [ -d "${CLAUDE_PLUGIN_DATA}/tools/node/node_modules" ]; then
+        ln -s "${CLAUDE_PLUGIN_DATA}/tools/node/node_modules" "${_TMPDIR}/node_modules"
+        cp "$_eslint_cfg" "${_TMPDIR}/eslint.config.mjs"
+        _eslint_cfg="${_TMPDIR}/eslint.config.mjs"
+    fi
+    run_check "ESLint" \
+        eslint \
+        --config "$_eslint_cfg" \
+        --print-config tests/fixtures/ts/good/sample.tsx
+fi
+
+# --- tflint -----------------------------------------------------------------
+# The pinned AWS ruleset is fetched only during this explicit validation gate.
+if ! tool_present tflint; then
+    _skip "tflint" "tool not installed"
+else
+    _tflint_pd="${TFLINT_PLUGIN_DIR:-${CLAUDE_PLUGIN_DATA}/tools/tflint/plugins}"
+    mkdir -p "$_tflint_pd"
+    if env TFLINT_PLUGIN_DIR="$_tflint_pd" tflint \
+        --config "${PLUGIN_ROOT}/configs/baseline/.tflint.hcl" --init >/dev/null 2>&1; then
+        run_check "tflint" \
+            env TFLINT_PLUGIN_DIR="$_tflint_pd" tflint \
+            --config "${PLUGIN_ROOT}/configs/baseline/.tflint.hcl" \
+            --chdir "${PLUGIN_ROOT}/tests/fixtures/terraform/good"
+    else
+        _fail "tflint" "failed to install the pinned AWS ruleset"
+    fi
+fi
+
+# --- Checkov ----------------------------------------------------------------
+# Spec: checkov --config-file configs/baseline/.checkov.yaml -d tests/fixtures/terraform/good
+if ! tool_present checkov; then
+    _skip "Checkov" "tool not installed"
+else
+    run_check "Checkov" \
+        checkov \
+        --config-file configs/baseline/.checkov.yaml \
+        -d tests/fixtures/terraform/good
+fi
+
+# --- kube-linter ------------------------------------------------------------
+# Spec: kube-linter checks list (each name from mapping exists) + lint fixtures
+if ! tool_present kube-linter; then
+    _skip "kube-linter" "tool not installed"
+else
+    run_check "kube-linter (checks list)" \
+        kube-linter checks list
+    run_check "kube-linter (lint fixtures)" \
+        kube-linter lint \
+        --config configs/baseline/.kube-linter.yaml \
+        --format json \
+        tests/fixtures/kubernetes/good
+fi
+
+# --- hadolint ---------------------------------------------------------------
+# Spec: hadolint --config configs/baseline/.hadolint.yaml tests/fixtures/docker/good/Dockerfile
+if ! tool_present hadolint; then
+    _skip "hadolint" "tool not installed"
+else
+    run_check "hadolint" \
+        hadolint \
+        --config configs/baseline/.hadolint.yaml \
+        tests/fixtures/docker/good/Dockerfile
+fi
+
+# --- zizmor -----------------------------------------------------------------
+# Spec: zizmor --config configs/baseline/zizmor.yml --format json --offline tests/fixtures/ci/good
+if ! tool_present zizmor; then
+    _skip "zizmor" "tool not installed"
+else
+    run_check "zizmor" \
+        zizmor \
+        --config configs/baseline/zizmor.yml \
+        --format json \
+        --offline \
+        tests/fixtures/ci/good/workflow.yml
+fi
+
+# --- Opengrep ---------------------------------------------------------------
+# Stage 0 carries no own rules yet, so there is no config to validate here.
+if tool_present opengrep; then
+    _info "Opengrep rules — no rule files yet; validation starts with the Stage 3 rules"
+else
+    _skip "Opengrep" "tool not installed"
+fi
+
+# ---------------------------------------------------------------------------
+# Baseline configs that have no §9.3 validation row (spec gap)
+# Counted in neither validated nor skipped — surfaced so they are not invisible.
+# ---------------------------------------------------------------------------
+
+printf "\n--- Configs without a §9.3 validation row ---\n"
+_info "phpmd.xml             — no §9.3 validation row (no validate command defined in spec)"
+_info "pyrightconfig.json    — no §9.3 validation row (pyright --outputjson is a runtime invocation)"
+_info ".sqlfluff             — no §9.3 validation row (sqlfluff lint is per-file, no schema-check command)"
+_info ".squawk.toml          — no §9.3 validation row (squawk has no config-validate subcommand)"
+_info ".gitleaks.toml        — no §9.3 validation row (betterleaks/gitleaks has no config-validate subcommand)"
+_info "eslint.security-overlay.mjs — no §9.3 validation row (covered by the ESLint row above at runtime)"
+
+# ---------------------------------------------------------------------------
+# Consistency check: every rule id named in rules/mapping/*.yaml must exist
+# in the tool. Enumeration: ruff rule --all, golangci-lint linters,
+# kube-linter checks list.
+#
+# Mapping files are named per tool (spec §9, e.g. golangci.yaml, checkov.yaml).
+# Each file is checked ONLY against its own tool's extractor, so a golangci.yaml
+# with only golangci_linter: keys does not trip the ruff or kube-linter guards.
+#
+# Key names (ruff_rule:, golangci_linter:, kube_linter_check:) are provisional —
+# they will be revised when the mapping schema is finalized. If a mapping file's
+# own tool key yields zero ids, the check fails loudly — not silently passes —
+# so a wrong key name cannot masquerade as a passing check.
+#
+# Lines are split on commas before extraction so multiple ids on one YAML line
+# (e.g. [ruff_rule: S101, ruff_rule: B904]) are all captured. sed BRE is used
+# throughout for portability (GNU and BSD/macOS sed).
+# ---------------------------------------------------------------------------
+
+printf "\n--- Consistency check: rules/mapping/ ---\n"
+
+# Portable array build (bash 3.2+): avoid mapfile which requires bash 4.4+.
+_mapping_files=()
+while IFS= read -r -d '' _mf; do
+    _mapping_files+=("${_mf}")
+done < <(find rules/mapping -name "*.yaml" -print0 2>/dev/null)
+
+_has_mappings=0
+for _mf in "${_mapping_files[@]+"${_mapping_files[@]}"}"; do
+    [ "${_mf##*/}" = ".gitkeep" ] && continue
+    _has_mappings=1
+    break
+done
+
+if [ "${_has_mappings}" -eq 0 ]; then
+    printf "INFO  no mappings yet — consistency check skipped (rules/mapping/ contains only .gitkeep)\n"
+else
+    for _mf in "${_mapping_files[@]}"; do
+        [ "${_mf##*/}" = ".gitkeep" ] && continue
+        _fname="${_mf##*/}"
+
+        # Select extractor by filename (spec: one file per tool, named after the tool).
+        case "${_fname}" in
+            ruff*|*python*)
+                # Ruff mapping: check ruff_rule: keys.
+                if tool_present ruff; then
+                    _ruff_ids=$(ruff rule --all --output-format json 2>/dev/null \
+                        | jq -r '.[].code' 2>/dev/null)
+                    # Split on commas first so multiple ids on one line are all captured.
+                    _codes=$(tr ',' '\n' < "${_mf}" \
+                        | sed -n 's/.*ruff_rule:[[:space:]]*\([A-Z][A-Z0-9]*[0-9][0-9]*\).*/\1/p' \
+                        2>/dev/null)
+                    if [ -z "${_codes}" ]; then
+                        _fail "ruff mapping consistency" \
+                            "${_mf}: zero ruff rule codes extracted (key 'ruff_rule:' absent — provisional)"
+                    else
+                        while IFS= read -r _code; do
+                            [ -z "${_code}" ] && continue
+                            if ! printf '%s\n' "${_ruff_ids}" | grep -qxF "${_code}"; then
+                                _fail "ruff rule: ${_code}" \
+                                    "(from ${_mf}) not found in ruff rule --all"
+                            fi
+                        done <<< "${_codes}"
+                    fi
+                fi
+                ;;
+            golangci*)
+                # golangci-lint mapping: check golangci_linter: keys.
+                if tool_present golangci-lint; then
+                    _gl_linters=$(golangci-lint linters 2>/dev/null)
+                    _linters=$(tr ',' '\n' < "${_mf}" \
+                        | sed -n 's/.*golangci_linter:[[:space:]]*\([a-z][a-z_-]*\).*/\1/p' \
+                        2>/dev/null)
+                    if [ -z "${_linters}" ]; then
+                        _fail "golangci-lint mapping consistency" \
+                            "${_mf}: zero linter names extracted (key 'golangci_linter:' absent — provisional)"
+                    else
+                        while IFS= read -r _linter; do
+                            [ -z "${_linter}" ] && continue
+                            if ! printf '%s\n' "${_gl_linters}" | grep -qF "${_linter}"; then
+                                _fail "golangci-lint linter: ${_linter}" \
+                                    "(from ${_mf}) not found in golangci-lint linters"
+                            fi
+                        done <<< "${_linters}"
+                    fi
+                fi
+                ;;
+            kube*)
+                # kube-linter mapping: check kube_linter_check: keys.
+                if tool_present kube-linter; then
+                    _kl_checks=$(kube-linter checks list 2>/dev/null)
+                    _checks=$(tr ',' '\n' < "${_mf}" \
+                        | sed -n 's/.*kube_linter_check:[[:space:]]*\([a-z][a-z-]*\).*/\1/p' \
+                        2>/dev/null)
+                    if [ -z "${_checks}" ]; then
+                        _fail "kube-linter mapping consistency" \
+                            "${_mf}: zero check names extracted (key 'kube_linter_check:' absent — provisional)"
+                    else
+                        while IFS= read -r _check; do
+                            [ -z "${_check}" ] && continue
+                            if ! printf '%s\n' "${_kl_checks}" | grep -qF "${_check}"; then
+                                _fail "kube-linter check: ${_check}" \
+                                    "(from ${_mf}) not found in kube-linter checks list"
+                            fi
+                        done <<< "${_checks}"
+                    fi
+                fi
+                ;;
+            *)
+                # No automated consistency check for this tool (checkov, sqlfluff, etc.).
+                _info "consistency check: no extractor for ${_fname} — not ruff/golangci/kube-linter"
+                ;;
+        esac
+    done
+fi
+
+# ---------------------------------------------------------------------------
+# Summary
+# ---------------------------------------------------------------------------
+
+printf "\n%d validated, %d skipped (not validated), %d failed\n" \
+    "${PASS}" "${SKIP}" "${FAIL}"
+
+if [ "${FAIL}" -gt 0 ] || [ "${SKIP}" -gt 0 ]; then
+    exit 1
+fi

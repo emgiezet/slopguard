@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+# run-tests — slop-guard bash assertion runner.
+#
+# Shape follows evals/harness/selftest.sh exactly: ok()/bad() counters, a
+# PASS/FAIL summary, and non-zero exit when any case fails.
+# Needs no network — every test uses file:// assets.
+set -uo pipefail
+
+TESTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+PLUGIN_ROOT="$(cd "${TESTS_DIR}/.." && pwd)"
+: "${CLAUDE_PLUGIN_ROOT:=$PLUGIN_ROOT}"
+
+PASS=0
+FAIL=0
+ok()  { printf '  ok    %s\n' "$1"; PASS=$((PASS + 1)); }
+bad() { printf '  FAIL  %s: %s\n' "$1" "$2"; FAIL=$((FAIL + 1)); }
+
+printf 'slop-guard test suite\n\n'
+
+# Source test files; they call ok()/bad() directly.
+# shellcheck source=tools_test.sh
+. "${TESTS_DIR}/tools_test.sh"
+# shellcheck source=hook_test.sh
+. "${TESTS_DIR}/hook_test.sh"
+# shellcheck source=state_test.sh
+. "${TESTS_DIR}/state_test.sh"
+# shellcheck source=bash_test.sh
+. "${TESTS_DIR}/bash_test.sh"
+# shellcheck source=write_test.sh
+. "${TESTS_DIR}/write_test.sh"
+# shellcheck source=detect_test.sh
+. "${TESTS_DIR}/detect_test.sh"
+
+for standalone in read_test.sh session_test.sh; do
+    if standalone_output="$("${TESTS_DIR}/${standalone}" 2>&1)"; then
+        ok "standalone suite: ${standalone}"
+    else
+        bad "standalone suite: ${standalone}" "$standalone_output"
+    fi
+done
+
+printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
+[ "$FAIL" -eq 0 ] || exit 1

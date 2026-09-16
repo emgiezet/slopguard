@@ -1,0 +1,10 @@
+{
+  "session_id": "sess-abc123",
+  "cwd": "/home/user/myproject",
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Bash",
+  "tool_input": {"command": "rm -rf /tmp/test"},
+  "tool_use_id": "toolu_bash_0001",
+  "agent_id": null,
+  "agent_type": null
+}

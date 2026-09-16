@@ -1,0 +1,50 @@
+---
+# rules/policies/bash.yaml — pre-bash command policy (spec §7.1)
+version: "1"
+
+allow:
+  - id: npm-ci
+    pattern: '^[[:space:]]*npm[[:space:]]+ci([[:space:]]|$)'
+  - id: frozen-installs
+    pattern: '^[[:space:]]*(pnpm[[:space:]]+install.*--frozen-lockfile|composer[[:space:]]+install([[:space:]]|$)|go[[:space:]]+mod[[:space:]]+download([[:space:]]|$)|uv[[:space:]]+sync.*--frozen)'
+
+deny:
+  - id: pipe-to-shell
+    src_pattern: '^[[:space:]]*(curl|wget)([[:space:]]|$)'
+    sink_pattern: '^[[:space:]]*(sh|bash|zsh|python[0-9.]*)([[:space:]]|$)'
+    reason: "Remote script execution. Download, verify checksum, then run explicitly."
+  - id: deny-lockfile-delete
+    pattern: '^[[:space:]]*(git[[:space:]]+)?rm[[:space:]]+.*(package-lock\.json|pnpm-lock\.yaml|yarn\.lock|composer\.lock|go\.sum|uv\.lock|poetry\.lock)([[:space:]]|$)'
+    reason: "Lockfiles must not be deleted; update them via the package manager."
+  - id: deny-global-system-install
+    pattern: '^[[:space:]]*((npm|pnpm|yarn|bun)[[:space:]]+(add|install|i).*(-g|--global)([[:space:]]|$)|pip[[:space:]]+install.*--break-system-packages|sudo[[:space:]]+(pip|npm)([[:space:]]|$))'
+    reason: "Global/system install is out of scope for project work."
+  - id: deny-lifecycle-scripts
+    pattern: '^[[:space:]]*(npm[[:space:]]+config[[:space:]]+set[[:space:]]+ignore-scripts[[:space:]]+false|.*--ignore-scripts=false)'
+    reason: "Lifecycle scripts are a supply-chain vector."
+  - id: deny-secret-file-read
+    pattern: '^[[:space:]]*(cat|less|head|tail|grep|base64)[[:space:]]+.*(\.env([^/[:space:]]*)?|\.pem|id_rsa[^/[:space:]]*|\.key|credentials[^/[:space:]]*)([[:space:]]|$)'
+    reason: "Secret files are off-limits."
+
+ask:
+  - id: node-add-package
+    pattern: '^[[:space:]]*(npm|pnpm|yarn|bun)[[:space:]]+(add|install|i)([[:space:]]+--?[^[:space:]]+)*[[:space:]]+[^-[:space:]]'
+    reason: "New dependency. Confirm name, maintainer, release age, and license."
+  - id: composer-add-package
+    pattern: '^[[:space:]]*composer[[:space:]]+require([[:space:]]+--?[^[:space:]]+)*[[:space:]]+[^-[:space:]]'
+    reason: "New dependency. Confirm name, maintainer, release age, and license."
+  - id: python-add-package
+    pattern: '^[[:space:]]*(pip[[:space:]]+install|uv[[:space:]]+add|poetry[[:space:]]+add)([[:space:]]+--?[^[:space:]]+)*[[:space:]]+[^-[:space:]]'
+    reason: "New dependency. Confirm name, maintainer, release age, and license."
+  - id: go-latest
+    pattern: '^[[:space:]]*go[[:space:]]+(get|install)[[:space:]]+[^[:space:]]+@latest([[:space:]]|$)'
+    reason: "Pin an explicit version instead of @latest."
+  - id: forced-resolution
+    pattern: '^[[:space:]]*npm[[:space:]]+install.*(--force|--legacy-peer-deps)([[:space:]]|$)'
+    reason: "Forcing resolution hides dependency conflicts."
+  - id: mass-update
+    pattern: '^[[:space:]]*(composer|npm)[[:space:]]+update[[:space:]]*$'
+    reason: "Mass dependency update is a separate, reviewable change."
+  - id: infrastructure-change
+    pattern: '^[[:space:]]*(terraform|tofu)[[:space:]]+(apply|destroy)([[:space:]]|$)|^[[:space:]]*kubectl[[:space:]]+(apply|delete|patch)([[:space:]]|$)'
+    reason: "Infrastructure change outside a local environment requires confirmation."

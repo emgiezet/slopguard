@@ -1,0 +1,10 @@
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Test fixtures and examples"
+paths = [
+  '''(^|/)tests?/fixtures/''',
+  '''\.example$''',
+  '''(^|/)docs/''',
+]

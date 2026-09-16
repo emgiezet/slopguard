@@ -1,0 +1,11 @@
+@types/node
+axios
+eslint
+express
+jest
+lodash
+next
+react
+typescript
+vite
+webpack

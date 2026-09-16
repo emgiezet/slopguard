@@ -1,0 +1,6 @@
+doctrine/orm
+guzzlehttp/guzzle
+laravel/framework
+monolog/monolog
+phpunit/phpunit
+symfony/framework-bundle

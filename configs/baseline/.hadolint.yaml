@@ -1,0 +1,10 @@
+failure-threshold: warning
+ignored:
+  - DL3008      # apt version pinning — noisy; we pin the base image by digest instead
+override:
+  error:
+    - DL3002    # last USER is root
+    - DL3006    # image without tag
+    - DL3007    # tag latest
+    - DL4006    # missing pipefail on RUN with pipe
+trustedRegistries: []   # fill with corporate registry (e.g. ECR)

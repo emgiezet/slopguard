@@ -1,0 +1,241 @@
+#!/usr/bin/env bash
+# slopguard — anti-pattern detection and gate for agent-written code.
+#
+#   slopguard doctor [--install]   report tool status; install with --install
+#   slopguard version              print version
+#   slopguard help                 this message
+#
+# Requires: jq (or compatible). Other tool dependencies are installed by doctor.
+set -uo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+PLUGIN_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+MANIFEST="${PLUGIN_ROOT}/.claude-plugin/plugin.json"
+
+# When invoked by the Claude Code runtime, CLAUDE_PLUGIN_ROOT and
+# CLAUDE_PLUGIN_DATA are injected. Fall back to derived paths for standalone use.
+: "${CLAUDE_PLUGIN_ROOT:=$PLUGIN_ROOT}"
+: "${CLAUDE_PLUGIN_DATA:=${XDG_DATA_HOME:-$HOME/.local/share}/claude/plugins/slop-guard}"
+export CLAUDE_PLUGIN_ROOT CLAUDE_PLUGIN_DATA
+
+# Read identity from the manifest so nothing here hard-codes the plugin name.
+manifest_field() {
+    sed -n "s/.*\"$1\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" "$MANIFEST" 2>/dev/null | head -1
+}
+VERSION="$(manifest_field version)"; [ -n "$VERSION" ] || VERSION="unknown"
+
+# --------------------------------------------------------------------------- #
+# plumbing
+# --------------------------------------------------------------------------- #
+
+die() { printf 'slopguard: %s\n' "$1" >&2; exit "${2:-1}"; }
+say() { printf '%s\n' "$1"; }
+
+ensure_jq() {
+    command -v jq >/dev/null 2>&1 && return 0
+    local managed_jq
+    managed_jq="$(bootstrap_jq)" || die "jq is missing and the pinned bootstrap failed"
+    PATH="$(dirname "$managed_jq"):${PATH}"
+    export PATH
+}
+
+# shellcheck source=../lib/tools.sh
+. "${CLAUDE_PLUGIN_ROOT}/lib/tools.sh"
+# shellcheck source=../lib/hook.sh
+. "${CLAUDE_PLUGIN_ROOT}/lib/hook.sh"
+# shellcheck source=../lib/state.sh
+. "${CLAUDE_PLUGIN_ROOT}/lib/state.sh"
+# shellcheck source=../lib/finding.sh
+. "${CLAUDE_PLUGIN_ROOT}/lib/finding.sh"
+
+# --------------------------------------------------------------------------- #
+# session-start
+# --------------------------------------------------------------------------- #
+
+cmd_session_start() {
+    "${PLUGIN_ROOT}/hooks/session-start"
+}
+
+# --------------------------------------------------------------------------- #
+# policy hooks
+# --------------------------------------------------------------------------- #
+
+cmd_pre_bash() {
+    "${PLUGIN_ROOT}/hooks/pre-bash"
+}
+
+cmd_pre_write() {
+    "${PLUGIN_ROOT}/hooks/pre-write"
+}
+
+cmd_pre_read() {
+    "${PLUGIN_ROOT}/hooks/pre-read"
+}
+
+# --------------------------------------------------------------------------- #
+# doctor
+# --------------------------------------------------------------------------- #
+
+cmd_doctor() {
+    local do_install=0
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --install) do_install=1; shift ;;
+            -*)        die "unknown flag for doctor: $1" ;;
+            *)         die "unexpected argument: $1" ;;
+        esac
+    done
+
+    detect_platform >/dev/null || die "unsupported platform"
+
+    local lock_path; lock_path="$(_tools_lock)" || die "CLAUDE_PLUGIN_ROOT is not set"
+    [ -f "$lock_path" ] || die "lockfile missing: $lock_path"
+
+    local tools_list
+    tools_list="$(lock_tools)" || die "lockfile unreadable or malformed: $lock_path"
+    [ -n "$tools_list" ] || die "lockfile contains no tools: $lock_path"
+
+    say "slopguard doctor — plugin: ${CLAUDE_PLUGIN_ROOT}  data: ${CLAUDE_PLUGIN_DATA}"
+    say ""
+
+    local fail_count=0
+
+    while IFS= read -r tool; do
+        local expected_version; expected_version="$(lock_version "$tool")"
+        local refresh_attempted=0 refresh_failed=0
+        if [ "$do_install" -eq 1 ] \
+            && [ -n "$(lock_metadata "$tool" node_lock)" ] \
+            && ! managed_metadata_matches "$tool"; then
+            refresh_attempted=1
+            say "  ${tool}  managed bundle metadata changed; reinstalling..."
+            if install_tool "$tool"; then
+                say "    → refreshed ${tool} ${expected_version}"
+            else
+                say "    → refresh FAILED"
+                refresh_failed=1
+            fi
+        fi
+        local resolved; resolved="$(resolve_tool "$tool")"
+        local config_label; config_label="$(tool_config_path "$tool")"
+        local fail_this="$refresh_failed"
+
+        if [ -z "$resolved" ]; then
+            fail_this=1
+            say "  ${tool}  source: missing  lockfile: ${expected_version}  [NOT FOUND]  config: ${config_label}"
+            local path_bin doctor_bin
+            doctor_bin="$(lock_bin "$tool")"
+            if path_bin="$(command -v "$doctor_bin" 2>/dev/null)"; then
+                local path_ver; path_ver="$(tool_version_output "$tool" "$path_bin" | head -1 || true)"
+                if tool_version_matches "$tool" "$path_bin"; then
+                    say "    PATH: ${path_bin} (${path_ver}) — ignored by tool_source=${CLAUDE_PLUGIN_OPTION_TOOL_SOURCE:-project-first}"
+                else
+                    say "    PATH: ${path_bin} (${path_ver}) — rejected: version mismatch (want ${expected_version})"
+                fi
+            fi
+        else
+            local source_label version_label match_label
+            local plugin_pfx="${CLAUDE_PLUGIN_DATA:-__NO_PLUGIN_DATA__}/tools/"
+            case "$resolved" in
+                "${plugin_pfx}"*)
+                    source_label="plugin" ;;
+                */vendor/bin/*|*/node_modules/.bin/*|*/.venv/bin/*)
+                    source_label="project" ;;
+                *)
+                    if [ -n "${CLAUDE_PROJECT_DIR:-}" ] && \
+                       [ "${resolved#${CLAUDE_PROJECT_DIR}/}" != "$resolved" ]; then
+                        source_label="project"
+                    else
+                        source_label="PATH"
+                    fi
+                    ;;
+            esac
+
+            version_label="$(tool_version_output "$tool" "$resolved" | head -1 || true)"
+
+            if tool_version_matches "$tool" "$resolved"; then
+                match_label="ok"
+            else
+                match_label="version mismatch (want ${expected_version})"
+                fail_this=1
+            fi
+
+            say "  ${tool}  source: ${source_label}  version: ${version_label}  [${match_label}]  config: ${config_label}"
+        fi
+
+        if [ "$fail_this" -eq 1 ]; then
+            fail_count=$((fail_count + 1))
+            if [ "$do_install" -eq 1 ] && [ "$refresh_attempted" -eq 0 ]; then
+                say "    → installing..."
+                if install_tool "$tool"; then
+                    local re_resolved; re_resolved="$(resolve_tool "$tool")"
+                    if [ -n "$re_resolved" ] && tool_version_matches "$tool" "$re_resolved"; then
+                        say "    → installed ${tool} ${expected_version}"
+                        fail_count=$((fail_count - 1))
+                    elif [ -n "$re_resolved" ]; then
+                        say "    → installed ${tool} ${expected_version} but a higher-priority binary still wins — see above"
+                    else
+                        say "    → installed ${tool} ${expected_version} but the binary is not reachable in the current source mode"
+                    fi
+                else
+                    say "    → install FAILED"
+                fi
+            elif [ -z "$resolved" ]; then
+                say "    install:  slopguard doctor --install"
+            fi
+        fi
+    done <<< "$tools_list"
+
+    say ""
+    if [ "$fail_count" -eq 0 ]; then
+        say "All tools present and version-matched."
+    else
+        say "Some tools are missing or version-mismatched."
+        if [ "$do_install" -eq 0 ]; then
+            say "Run:  slopguard doctor --install"
+        fi
+        return 1
+    fi
+}
+
+# --------------------------------------------------------------------------- #
+# help
+# --------------------------------------------------------------------------- #
+
+cmd_help() {
+    cat <<USAGE
+slopguard ${VERSION} — anti-pattern detection and gate for agent-written code.
+
+  slopguard doctor             report tool status (installs nothing)
+  slopguard doctor --install   install or update pinned tools
+  slopguard version            print version
+  slopguard help               this message
+
+Plugin root: ${CLAUDE_PLUGIN_ROOT}
+Plugin data: ${CLAUDE_PLUGIN_DATA}
+
+Tool resolution order (tool_source=project-first):
+  1. Project binary  — vendor/bin, node_modules/.bin, .venv/bin, go tool -n
+  2. Plugin binary   — \${CLAUDE_PLUGIN_DATA}/tools/<name>/current/<name>
+                       accepted only when version equals the lockfile
+  3. PATH binary     — only when version equals the lockfile
+
+See tools/tools.lock.json for pinned versions and sha256 hashes.
+USAGE
+}
+
+# --------------------------------------------------------------------------- #
+
+case "${1:-help}" in
+    session-start|pre-bash|pre-write|pre-read|doctor) ensure_jq ;;
+esac
+
+case "${1:-help}" in
+    session-start)     shift; cmd_session_start "$@" ;;
+    pre-bash)          shift; cmd_pre_bash "$@" ;;
+    pre-write)         shift; cmd_pre_write "$@" ;;
+    pre-read)          shift; cmd_pre_read "$@" ;;
+    doctor)            shift; cmd_doctor "$@" ;;
+    version|--version) say "slopguard ${VERSION}" ;;
+    help|--help|-h)    cmd_help ;;
+    *)                 die "unknown command '${1:-}' — try: slopguard help" ;;
+esac

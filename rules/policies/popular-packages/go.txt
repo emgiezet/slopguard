@@ -1,0 +1,10 @@
+github.com/gin-gonic/gin
+github.com/go-chi/chi
+github.com/gorilla/mux
+github.com/spf13/cobra
+github.com/stretchr/testify
+go.uber.org/zap
+golang.org/x/sync
+golang.org/x/tools
+google.golang.org/grpc
+gorm.io/gorm

@@ -1,0 +1,168 @@
+#!/usr/bin/env bash
+# pre-write — gate for Write / Edit / MultiEdit / NotebookEdit tool calls.
+set -uo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+PLUGIN_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+: "${CLAUDE_PLUGIN_ROOT:=$PLUGIN_ROOT}"
+# shellcheck source=../lib/hook.sh
+. "${PLUGIN_ROOT}/lib/hook.sh"
+# shellcheck source=../lib/tools.sh
+. "${PLUGIN_ROOT}/lib/tools.sh"
+# shellcheck source=../lib/secrets.sh
+. "${PLUGIN_ROOT}/lib/secrets.sh"
+# shellcheck source=../lib/state.sh
+. "${PLUGIN_ROOT}/lib/state.sh"
+
+hook_input
+tool_name="$(hook_field .tool_name)"
+file_path=""
+new_content=""
+old_content=""
+
+case "$tool_name" in
+    Write)
+        file_path="$(hook_field .tool_input.file_path)"
+        new_content="$(hook_field .tool_input.content)"
+        old_content="$(cat "$file_path" 2>/dev/null || true)"
+        ;;
+    Edit)
+        file_path="$(hook_field .tool_input.file_path)"
+        new_content="$(hook_field .tool_input.new_string)"
+        old_content="$(hook_field .tool_input.old_string)"
+        ;;
+    MultiEdit)
+        file_path="$(hook_field .tool_input.file_path)"
+        new_content="$(hook_field '[.tool_input.edits[]?.new_string] | join("\n")')"
+        old_content="$(hook_field '[.tool_input.edits[]?.old_string] | join("\n")')"
+        ;;
+    NotebookEdit)
+        file_path="$(hook_field .tool_input.notebook_path)"
+        new_content="$(hook_field .tool_input.new_source)"
+        old_content="$(hook_field .tool_input.old_source)"
+        ;;
+    *) exit 0 ;;
+esac
+[ -n "$file_path" ] || exit 0
+
+# External scanner first; unmistakable credential formats remain covered if it is unavailable.
+if secret_finding="$(secret_in_content "$new_content" "$file_path")"; then
+    hook_secret_deny "${secret_finding}. Use an environment variable or a secret manager instead."
+    exit 0
+fi
+
+# Parse the deliberately small suppressions.yaml schema without adding a YAML dependency.
+# Each emitted record pairs a literal marker with its language-specific POSIX ERE.
+suppression_records="$(awk '
+    /^  [[:alnum:]_]+:$/ { in_patterns = 0; count = 0; next }
+    /^    patterns:$/ { in_patterns = 1; count = 0; next }
+    in_patterns && /^      - / {
+        value = $0
+        sub(/^[[:space:]]*-[[:space:]]*/, "", value)
+        gsub(/^\042|\042$/, "", value)
+        patterns[++count] = value
+        next
+    }
+    in_patterns && /^    reason_grep_E:/ {
+        reason = $0
+        sub(/^[[:space:]]*reason_grep_E:[[:space:]]*\047/, "", reason)
+        sub(/\047[[:space:]]*$/, "", reason)
+        for (i = 1; i <= count; i++) print patterns[i] "\t" reason
+        delete patterns
+        count = 0
+        in_patterns = 0
+    }
+' "${PLUGIN_ROOT}/rules/policies/suppressions.yaml" 2>/dev/null || true)"
+
+_suppression_count() {
+    printf '%s' "$1" | grep -Fo -- "$2" | wc -l | tr -d ' '
+}
+
+_unjustified_suppression_count() {
+    local content="$1" marker_text="$2" reason_regex="$3" line count=0
+    while IFS= read -r line; do
+        case "$line" in
+            *"$marker_text"*)
+                if ! printf '%s\n' "$line" | grep -Eq -- "$reason_regex"; then
+                    count=$((count + 1))
+                fi ;;
+        esac
+    done <<< "$content"
+    printf '%s' "$count"
+}
+
+while IFS=$'\t' read -r marker reason_pattern; do
+    [ -n "$marker" ] || continue
+    new_marker_count="$(_suppression_count "$new_content" "$marker")"
+    old_marker_count="$(_suppression_count "$old_content" "$marker")"
+    [ "$new_marker_count" -gt "$old_marker_count" ] || continue
+
+    new_unjustified="$(_unjustified_suppression_count "$new_content" "$marker" "$reason_pattern")"
+    old_unjustified="$(_unjustified_suppression_count "$old_content" "$marker" "$reason_pattern")"
+    if [ "$new_unjustified" -gt "$old_unjustified" ]; then
+        hook_deny "Suppression comment '$marker' requires a justification on the same line."
+        exit 0
+    fi
+done <<< "$suppression_records"
+
+base_name="${file_path##*/}"
+protected=0
+case "$base_name" in
+    phpstan*.neon*|psalm*.xml*|.golangci.*|eslint.config.*|.eslintrc*|ruff.toml|.ruff.toml|.tflint.hcl|.checkov.yaml|.kube-linter.yaml|.hadolint.yaml|zizmor.yml|.gitleaks.toml|.sqlfluff|.eslintcache|*.baseline.json)
+        protected=1 ;;
+    pyproject.toml)
+        if [ "$new_content" != "$old_content" ] \
+            && { printf '%s\n%s' "$old_content" "$new_content" \
+                | grep -Eq '^\[tool\.(ruff|mypy|pyright)\]'; }; then
+            protected=1
+        fi ;;
+    tsconfig*.json)
+        if printf '%s' "$new_content" | grep -Eq '"strict"[[:space:]]*:[[:space:]]*false' \
+            || { printf '%s' "$old_content" | grep -Eq '"strict"[[:space:]]*:[[:space:]]*true' \
+                && ! printf '%s' "$new_content" | grep -Eq '"strict"[[:space:]]*:[[:space:]]*true'; }; then
+            protected=1
+        fi ;;
+esac
+case "$file_path" in
+    */.github/workflows/*|*/.gitlab-ci.yml|.github/workflows/*|.gitlab-ci.yml)
+        for keyword in lint test security; do
+            if printf '%s' "$old_content" | grep -qi -- "$keyword" \
+                && ! printf '%s' "$new_content" | grep -qi -- "$keyword"; then
+                protected=1
+                break
+            fi
+        done
+        ;;
+esac
+if [ "$protected" -eq 1 ]; then
+    hook_ask "Lowering quality gates must be reviewed by a human."
+    exit 0
+fi
+
+
+session_id="$(hook_field .session_id)"
+agent_id="$(hook_field .agent_id)"
+language=""
+case "$base_name" in
+    *.php) language="php" ;;
+    *.go) language="go" ;;
+    *.py) language="python" ;;
+    *.js|*.jsx|*.mjs|*.cjs|*.ts|*.tsx) language="js-ts" ;;
+    *.tf|*.hcl|*.yaml|*.yml|Dockerfile) language="iac" ;;
+esac
+if [ -n "$session_id" ] && [ -n "$language" ]; then
+    context_dir="$(state_dir "$session_id" "${agent_id:-}")"
+    mkdir -p "$context_dir"
+    if mkdir "${context_dir}/context-${language}.sent" 2>/dev/null; then
+        case "$language" in
+            php) blockers="SQL injection, unsafe deserialization, mass assignment, and env() outside config" ;;
+            go) blockers="unchecked errors, command or SQL injection, and unsafe filesystem boundaries" ;;
+            python) blockers="eval/exec, shell=True, unsafe deserialization, and raw SQL" ;;
+            js-ts) blockers="eval, unsafe HTML injection, unbounded request bodies, and unhandled promises" ;;
+            iac) blockers="public exposure, unpinned images/actions, broad IAM, and embedded secrets" ;;
+        esac
+        hook_context "Slop Guard first ${language} edit: blocker checks cover ${blockers}."
+    fi
+fi
+
+exit 0

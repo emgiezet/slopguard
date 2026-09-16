@@ -1,0 +1,8 @@
+[sqlfluff]
+dialect = postgres
+templater = raw
+max_line_length = 120
+rules = core
+
+[sqlfluff:rules:capitalisation.keywords]
+capitalisation_policy = upper

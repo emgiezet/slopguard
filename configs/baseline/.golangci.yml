@@ -1,0 +1,58 @@
+version: "2"
+
+run:
+  timeout: 3m
+  tests: true
+
+linters:
+  default: standard            # errcheck, govet, ineffassign, staticcheck, unused
+  enable:
+    # security
+    - gosec
+    - bodyclose
+    - noctx
+    - sqlclosecheck
+    - rowserrcheck
+    # correctness / error handling
+    - errorlint
+    - nilerr
+    - contextcheck
+    - forcetypeassert
+    - exhaustive
+    - errname
+    # performance
+    - prealloc
+    - perfsprint
+    # maintainability
+    - gocritic
+    - revive
+    - gocognit
+    - unparam
+  settings:
+    gocognit:
+      min-complexity: 20
+    govet:
+      enable-all: true
+      disable:
+        - fieldalignment       # too noisy for agent feedback
+        - shadow
+    revive:
+      rules:
+        - name: deep-exit      # log.Fatal / os.Exit outside main
+        - name: context-as-argument
+        - name: error-return
+        - name: unhandled-error
+          arguments: ["fmt.Printf", "fmt.Println"]
+    exhaustive:
+      default-signifies-exhaustive: true
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - std-error-handling
+
+formatters:
+  enable:
+    - gofmt
+    - goimports

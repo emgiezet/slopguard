@@ -1,0 +1,104 @@
+#!/usr/bin/env bash
+# hooks/pre-bash — policy-based gate for bash commands.
+set -uo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+PLUGIN_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+# shellcheck source=../lib/hook.sh
+. "${PLUGIN_ROOT}/lib/hook.sh"
+# shellcheck source=../lib/shellsplit.sh
+. "${PLUGIN_ROOT}/lib/shellsplit.sh"
+# shellcheck source=../lib/typosquat.sh
+. "${PLUGIN_ROOT}/lib/typosquat.sh"
+
+hook_input
+command="$(hook_field .tool_input.command)"
+[ -n "$command" ] || exit 0
+
+POLICY_FILE="${PLUGIN_ROOT}/rules/policies/bash.yaml"
+PARSER="${PLUGIN_ROOT}/rules/policies/generate_policy.sh"
+# The generated text contains only single-quoted strings from the repository-owned policy.
+eval "$("$PARSER" "$POLICY_FILE")"
+
+_normalize_component() {
+    local text="$1" index=0 executable
+    local -a words
+    read -r -a words <<< "$text"
+    [ "${#words[@]}" -gt 0 ] || { printf '%s' "$text"; return; }
+
+    if [ "${words[0]##*/}" = "env" ]; then
+        index=1
+        while [ "$index" -lt "${#words[@]}" ]; do
+            case "${words[$index]}" in -*|[A-Za-z_][A-Za-z0-9_]*=*) index=$((index + 1)) ;; *) break ;; esac
+        done
+    else
+        while [ "$index" -lt "${#words[@]}" ]; do
+            case "${words[$index]}" in [A-Za-z_][A-Za-z0-9_]*=*) index=$((index + 1)) ;; *) break ;; esac
+        done
+    fi
+    [ "$index" -lt "${#words[@]}" ] || { printf '%s' "$text"; return; }
+    executable="${words[$index]##*/}"
+    words[$index]="$executable"
+    words=("${words[@]:$index}")
+    printf '%s' "${words[*]}"
+}
+
+components=()
+while IFS= read -r component; do
+    components[${#components[@]}]="$component"
+done < <(shellsplit "$command")
+decision=""
+reason=""
+previous=""
+operator=""
+
+for component in "${components[@]}"; do
+    case "$component" in
+        '&&'|'||'|';'|'('|')') operator="$component"; continue ;;
+        '|') operator='|'; continue ;;
+    esac
+
+    normalized_component="$(_normalize_component "$component")"
+
+    if [ "$operator" = '|' ] \
+        && [[ "$previous" =~ ^[[:space:]]*(curl|wget)([[:space:]]|$) ]] \
+        && [[ "$normalized_component" =~ ^[[:space:]]*(sh|bash|zsh|python[0-9.]*)([[:space:]]|$) ]]; then
+        hook_deny "Remote script execution. Download, verify checksum, then run explicitly."
+        exit 0
+    fi
+
+    allowed=0
+    for pattern in "${ALLOW_PATTERNS[@]}"; do
+        if [[ "$normalized_component" =~ $pattern ]]; then
+            allowed=1
+            break
+        fi
+    done
+
+    # Denies always outrank allows; an otherwise-safe install may still carry a
+    # forbidden flag such as --ignore-scripts=false.
+    for pattern in "${DENY_PATTERNS[@]}"; do
+        if [[ "$normalized_component" =~ $pattern ]]; then
+            hook_deny "Command component violates security policy: $component"
+            exit 0
+        fi
+    done
+    if [ "$allowed" -eq 0 ] && [ -z "$decision" ]; then
+        for pattern in "${ASK_PATTERNS[@]}"; do
+            if [[ "$normalized_component" =~ $pattern ]]; then
+                decision="ask"
+                reason="Action requires confirmation: $component$(typosquat_hint "$normalized_component")"
+                break
+            fi
+        done
+    fi
+
+    previous="$normalized_component"
+    operator=""
+done
+
+if [ "$decision" = "ask" ]; then
+    hook_ask "$reason"
+fi
+
+exit 0

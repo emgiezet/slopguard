@@ -1,0 +1,66 @@
+# Slop Guard: pre-read policy declaration.
+# Machine-readable source of truth for hooks/pre-read.
+# See §7.3 for rationale.
+#
+# Precedence: allow > deny > ask.
+# Pattern matching is against the lowercased basename unless the entry is a
+# path-level pattern (marked with 'path_match: true'), in which case the full
+# file_path is checked.
+
+allow:
+  # Template / example env files contain no real secrets.
+  - pattern: ".env.example"
+    reason: "example env file — no real secrets expected"
+  - pattern: ".env.dist"
+    reason: "distribution env file — no real secrets expected"
+  - pattern: ".env.template"
+    reason: "template env file — no real secrets expected"
+
+deny:
+  # Environment files frequently contain database passwords, API keys, etc.
+  - pattern: ".env"
+    reason: "Environment files may contain secrets. Use .env.example for templates."
+  - pattern: ".env.*"
+    reason: "Environment files may contain secrets. Use .env.example for templates."
+
+  # Private key and certificate material.
+  - pattern: "*.pem"
+    reason: "PEM files may contain private key or certificate material."
+  - pattern: "*.key"
+    reason: "Key files may contain private key material."
+  - pattern: "*.p12"
+    reason: "PKCS#12 files contain private key material."
+  - pattern: "*.pfx"
+    reason: "PFX files contain private key material."
+
+  # SSH private keys.
+  - pattern: "id_rsa*"
+    reason: "SSH key files may contain private key material."
+  - pattern: "id_ed25519*"
+    reason: "SSH key files may contain private key material."
+
+  # Credential stores and cloud config — path-level patterns.
+  - pattern: "**/credentials"
+    path_match: true
+    reason: "Credential files are not safe to read."
+  - pattern: "**/credentials.*"
+    path_match: true
+    reason: "Credential files are not safe to read."
+  - pattern: "**/.aws/credentials"
+    path_match: true
+    reason: "AWS credential file — contains access keys."
+  - pattern: "**/.kube/config"
+    path_match: true
+    reason: "Kubernetes config may contain embedded cluster credentials."
+  - pattern: "**/secrets/**"
+    path_match: true
+    reason: "Path inside a secrets/ directory."
+
+ask:
+  # Terraform variable files whose names suggest production or secret values.
+  # name_contains is matched against the basename without the .tfvars extension.
+  - pattern: "*.tfvars"
+    name_contains:
+      - "secret"
+      - "prod"
+    reason: "Terraform variable file may contain production or secret values. Confirm intentional read."

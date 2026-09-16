@@ -1,0 +1,39 @@
+{
+  "$comment": [
+    "Merge the 'permissions' and 'enabledPlugins' blocks below into your project's",
+    ".claude/settings.json (or your organisation's managed settings).",
+    "",
+    "Architecture note — two layers, one purpose:",
+    "  Floor  : the 'permissions' block below.  Enforced by the Claude Code platform",
+    "           before any hook runs.  Cannot be bypassed by the agent.",
+    "  Defence: the pre-read hook in hooks/pre-read.  Catches edge cases the",
+    "           permission patterns do not cover and adds richer diagnostic reasons.",
+    "",
+    "In a managed-settings deployment the platform layer is the hard guarantee;",
+    "the hook is defence in depth.  In a project-only deployment the hook is the",
+    "only enforcement layer, so the permissions block below MUST be present."
+  ],
+  "permissions": {
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Read(./**/*.pem)",
+      "Read(./**/*.key)",
+      "Read(./secrets/**)",
+      "Bash(npm install -g *)",
+      "Bash(sudo *)"
+    ],
+    "ask": [
+      "Bash(npm install *)",
+      "Bash(pnpm add *)",
+      "Bash(composer require *)",
+      "Bash(go get *)",
+      "Bash(pip install *)",
+      "Bash(terraform apply *)",
+      "Bash(kubectl apply *)"
+    ]
+  },
+  "enabledPlugins": {
+    "slop-guard@<marketplace>": true
+  }
+}

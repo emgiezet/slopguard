@@ -1,0 +1,76 @@
+# rules/policies/write.yaml — pre-write gate policy (§7.2, §6.10, §8.8)
+#
+# Authoritative specification for hooks/pre-write.
+# Embedded patterns in the hook are kept in sync with this file.
+#
+# Decision precedence: deny > ask > (pass — logged at Stop as info)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# §6.10  Secret scanning
+# ─────────────────────────────────────────────────────────────────────────────
+secrets:
+  scanner: betterleaks          # primary; fallback: gitleaks; absent → fail-open (Z6)
+  config: configs/baseline/.gitleaks.toml
+  command:
+    - stdin
+    - --report-format
+    - json
+    - --report-path
+    - "-"
+    - --redact
+    - --no-banner
+  result: deny                  # any finding → deny; reason names type, never value
+  remediation: "Use an environment variable or a secret manager instead."
+
+# ─────────────────────────────────────────────────────────────────────────────
+# §7.2C  Protected files → ask
+# ─────────────────────────────────────────────────────────────────────────────
+# Reason: "lowering quality gates must be reviewed by a human"
+protected_files:
+  # Always ask — unconditional.
+  tool_configs:
+    - "phpstan*.neon*"
+    - "psalm*.xml*"
+    - ".golangci.*"
+    - "eslint.config.*"
+    - ".eslintrc*"
+    - "ruff.toml"
+    - ".ruff.toml"
+    - ".tflint.hcl"
+    - ".checkov.yaml"
+    - ".kube-linter.yaml"
+    - ".hadolint.yaml"
+    - "zizmor.yml"
+    - ".gitleaks.toml"
+    - ".sqlfluff"
+
+  baselines:
+    - "phpstan-baseline.neon"
+    - "psalm-baseline.xml"
+    - ".eslintcache"
+    - "*.baseline.json"
+
+  # Ask only when condition is met.
+  conditional:
+    pyproject_toml:
+      filename: "pyproject.toml"
+      trigger_when_diff_touches:
+        - "[tool.ruff]"
+        - "[tool.mypy]"
+        - "[tool.pyright]"
+
+    tsconfig:
+      pattern: "tsconfig*.json"
+      trigger_when_weakens_strict: true
+      # "weakens strict" = adds `"strict": false` that wasn't there,
+      # or removes `"strict": true` that was there.
+
+    ci_removes_step:
+      patterns:
+        - ".github/workflows/*"
+        - ".gitlab-ci.yml"
+      # Ask when the write removes occurrences of these keywords.
+      step_keywords:
+        - lint
+        - test
+        - security

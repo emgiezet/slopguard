@@ -1,0 +1,63 @@
+suppressions:
+  php:
+    extensions: [php, blade]
+    patterns:
+      - "@phpstan-ignore"
+      - "@phpstan-ignore-line"
+      - "@phpstan-ignore-next-line"
+      - "@psalm-suppress"
+      - "phpcs:ignore"
+      - "@SuppressWarnings(PHPMD"
+    reason_grep_E: '\(reason:[[:space:]]*.{10,}\)'
+    reason_example: "// @phpstan-ignore argument.type (reason: safe because input is validated)"
+
+  go:
+    extensions: [go]
+    patterns:
+      - "//nolint"
+      - "// #nosec"
+      - "//#nosec"
+    reason_grep_E: 'reason:[[:space:]]*.{10,}'
+    reason_example: "//nolint:gosec // reason: input is validated upstream before this call"
+
+  python:
+    extensions: [py]
+    patterns:
+      - "# noqa"
+      - "# nosec"
+      - "# type: ignore"
+      - "# pyright: ignore"
+      - "# ty: ignore"
+      - "# pragma: no cover"
+    reason_grep_E: '--[[:space:]]*reason:[[:space:]]*.{10,}'
+    reason_example: "# noqa: S608 -- reason: query is fully parameterised, no user data"
+
+  js_ts:
+    extensions: [js, mjs, cjs, jsx, ts, tsx]
+    patterns:
+      - "eslint-disable"
+      - "@ts-ignore"
+      - "@ts-nocheck"
+      - "@ts-expect-error"
+    reason_grep_E: '--[[:space:]]*reason:[[:space:]]*.{10,}|@ts-expect-error[[:space:]].{10,}'
+    reason_example: "// eslint-disable-next-line no-console -- reason: debug utility only"
+
+  iac:
+    extensions: [tf, hcl, yaml, yml]
+    names: [Dockerfile]
+    patterns:
+      - "checkov:skip="
+      - "# tflint-ignore"
+      - "# kics-scan ignore"
+      - "# hadolint ignore="
+      - "# zizmor: ignore"
+    reason_grep_E: 'reason:[[:space:]]*.{10,}'
+    reason_example: "# checkov:skip=CKV_AWS_18 reason: logging disabled intentionally per ADR-42"
+
+  opengrep:
+    # Applies to any file type (Semgrep/Opengrep inline suppressions).
+    patterns:
+      - "nosemgrep"
+      - "nosec"
+    reason_grep_E: 'reason:[[:space:]]*.{10,}'
+    reason_example: "# nosemgrep: rule-id -- reason: reviewed, confirmed not exploitable"

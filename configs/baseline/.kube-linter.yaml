@@ -1,0 +1,7 @@
+checks:
+  addAllBuiltIn: true
+  exclude:
+    - minimum-three-replicas      # environment-dependent
+    - no-anti-affinity
+    - required-annotation-email
+    - required-label-owner

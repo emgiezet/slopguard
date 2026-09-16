@@ -1,0 +1,11 @@
+{
+  "session_id": "sess-abc123",
+  "cwd": "/home/user/myproject",
+  "hook_event_name": "Stop",
+  "tool_name": null,
+  "tool_input": null,
+  "tool_use_id": null,
+  "stop_hook_active": true,
+  "agent_id": null,
+  "agent_type": null
+}

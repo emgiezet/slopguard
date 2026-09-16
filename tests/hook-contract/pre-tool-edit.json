@@ -1,0 +1,10 @@
+{
+  "session_id": "sess-abc123",
+  "cwd": "/home/user/myproject",
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Edit",
+  "tool_input": {"file_path": "/home/user/myproject/app.py", "old_string": "def old():", "new_string": "def new():"},
+  "tool_use_id": "toolu_edit_0001",
+  "agent_id": "agent-sub-1",
+  "agent_type": "subagent"
+}
