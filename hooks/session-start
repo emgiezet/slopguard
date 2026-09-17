@@ -17,6 +17,8 @@ PLUGIN_ROOT="$(cd "${HOOKS_DIR}/.." && pwd)"
 . "${CLAUDE_PLUGIN_ROOT}/lib/tools.sh"
 # shellcheck source=../lib/detect.sh
 . "${CLAUDE_PLUGIN_ROOT}/lib/detect.sh"
+# shellcheck source=../lib/config.sh
+. "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
 
 main() {
     hook_input
@@ -27,9 +29,9 @@ main() {
     state_prune
     state_init "$SESSION_ID" "${AGENT_ID:-}"
 
-    local _d="${CLAUDE_PROJECT_DIR:-.}" _stacks
+    local _d="${CLAUDE_PROJECT_DIR:-.}"
     local _php_cfg _go_cfg _python_cfg _node_cfg
-    _stacks="$(detect_stacks "$_d")"
+    config_resolve_stacks "$_d"
     _php_cfg="$(tool_config_source "$(tool_config_path phpstan "$_d")")"
     _go_cfg="$(tool_config_source "$(tool_config_path golangci-lint "$_d")")"
     _python_cfg="$(tool_config_source "$(tool_config_path ruff "$_d")")"
@@ -76,13 +78,17 @@ main() {
     done < <(lock_tools)
 
     jq \
-        --argjson stacks "$(printf '%s' "${_stacks:-}" | jq -Rcs 'split(" ") | map(select(length > 0))')" \
+        --argjson stacks "$(printf '%s' "${SG_STACKS:-}" | jq -Rcs 'split(" ") | map(select(length > 0))')" \
+        --arg stacks_source "${SG_STACKS_SOURCE:-auto}" \
+        --argjson stacks_warnings "$(printf '%s' "${SG_STACKS_WARNINGS:-}" | jq -Rcs 'split("\n") | map(select(length > 0))')" \
         --arg php_cfg "$_php_cfg" \
         --arg go_cfg "$_go_cfg" \
         --arg python_cfg "$_python_cfg" \
         --arg node_cfg "$_node_cfg" \
         --argjson tools "$_tools_json" \
         '.stacks = $stacks
+         | .stacks_source = $stacks_source
+         | .stacks_warnings = $stacks_warnings
          | .tools = $tools
          | .config_sources = {php: $php_cfg, go: $go_cfg, python: $python_cfg, node: $node_cfg}' \
         "${_sdir}/profile.json" > "${_sdir}/profile.json.tmp" \
@@ -97,7 +103,26 @@ main() {
         : > "$_missing_marker"
     fi
 
-    printf 'slop-guard: stacks detected: %s\n' "${_stacks:-none}"
+    local _src_label _tier2="" _sg_stack _w
+    case "${SG_STACKS_SOURCE:-auto}" in
+        auto) _src_label="auto" ;;
+        *)    _src_label=".slopguard.json" ;;
+    esac
+    # shellcheck disable=SC2086
+    for _sg_stack in ${SG_STACKS:-}; do
+        if [ "$(stack_tier "$_sg_stack" 2>/dev/null)" = "2" ]; then
+            _tier2="${_tier2:+$_tier2, }$_sg_stack"
+        fi
+    done
+    printf 'slop-guard: stacks (%s): %s\n' "$_src_label" "${SG_STACKS:-none}"
+    [ -n "$_tier2" ] \
+        && printf 'slop-guard: %s — tier 2: prevention + SAST only, no type analysis\n' "$_tier2"
+    if [ -n "${SG_STACKS_WARNINGS:-}" ]; then
+        while IFS= read -r _w; do
+            [ -n "$_w" ] || continue
+            printf 'slop-guard: warning: %s\n' "$_w"
+        done <<< "${SG_STACKS_WARNINGS}"
+    fi
     cat <<'DIGEST'
 slop-guard active — always-on rules (full text: skill agent-discipline)
 AP-AGENT-001: linter suppressions without a reason (≥10 chars) are blocked.

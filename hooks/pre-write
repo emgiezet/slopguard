@@ -108,7 +108,7 @@ done <<< "$suppression_records"
 base_name="${file_path##*/}"
 protected=0
 case "$base_name" in
-    phpstan*.neon*|psalm*.xml*|.golangci.*|eslint.config.*|.eslintrc*|ruff.toml|.ruff.toml|.tflint.hcl|.checkov.yaml|.kube-linter.yaml|.hadolint.yaml|zizmor.yml|.gitleaks.toml|.sqlfluff|.eslintcache|*.baseline.json)
+    phpstan*.neon*|psalm*.xml*|.golangci.*|eslint.config.*|.eslintrc*|ruff.toml|.ruff.toml|.tflint.hcl|.checkov.yaml|.kube-linter.yaml|.hadolint.yaml|zizmor.yml|.gitleaks.toml|.sqlfluff|.slopguard.json|.eslintcache|*.baseline.json)
         protected=1 ;;
     pyproject.toml)
         if [ "$new_content" != "$old_content" ] \

@@ -3,7 +3,7 @@
 #
 # §4.5 state layout:
 #   ${CLAUDE_PLUGIN_DATA}/sessions/<session_id>[/<agent_id>]/
-#     profile.json      — detected stacks, tools, config sources
+#     profile.json      — stacks, stacks_source, stacks_warnings, tools, config sources
 #     touched.json      — files changed in the session with content hash
 #     findings.json     — findings array (written atomically by finding_add)
 #     stop-iterations   — stop-gate iteration counter (plain integer, default 0)

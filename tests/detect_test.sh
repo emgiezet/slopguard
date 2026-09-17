@@ -52,4 +52,82 @@ mkdir -p "$DETECT_WORK/terraform"
 touch "$DETECT_WORK/terraform/main.tf"
 assert_stacks terraform "$DETECT_WORK/terraform" terraform
 
+# --- tier-2 language detection ---
+
+mkdir -p "$DETECT_WORK/java"
+touch "$DETECT_WORK/java/pom.xml"
+assert_stacks java "$DETECT_WORK/java" java
+
+# settings.gradle.kts is kotlin-only; build.gradle.kts is shared with java
+mkdir -p "$DETECT_WORK/kotlin"
+touch "$DETECT_WORK/kotlin/settings.gradle.kts"
+assert_stacks kotlin "$DETECT_WORK/kotlin" kotlin
+
+# *.sln glob at root is unambiguous for C#
+mkdir -p "$DETECT_WORK/csharp"
+touch "$DETECT_WORK/csharp/MyApp.sln"
+assert_stacks csharp "$DETECT_WORK/csharp" csharp
+
+mkdir -p "$DETECT_WORK/ruby"
+touch "$DETECT_WORK/ruby/Gemfile"
+assert_stacks ruby "$DETECT_WORK/ruby" ruby
+
+mkdir -p "$DETECT_WORK/rust"
+touch "$DETECT_WORK/rust/Cargo.toml"
+assert_stacks rust "$DETECT_WORK/rust" rust
+
+# --- requires gating ---
+
+# tsconfig.json without package.json must not yield node or typescript
+mkdir -p "$DETECT_WORK/ts-only"
+touch "$DETECT_WORK/ts-only/tsconfig.json"
+_sg_actual="$(detect_stacks "$DETECT_WORK/ts-only")"
+case " $_sg_actual " in
+    *" node "*|*" typescript "*)
+        bad "detect: requires-gate typescript" "unexpected stacks in [${_sg_actual:-<empty>}]" ;;
+    *) ok "detect: requires-gate typescript" ;;
+esac
+
+# artisan without composer.json must not yield php or laravel
+mkdir -p "$DETECT_WORK/artisan-only"
+touch "$DETECT_WORK/artisan-only/artisan"
+_sg_actual="$(detect_stacks "$DETECT_WORK/artisan-only")"
+case " $_sg_actual " in
+    *" php "*|*" laravel "*)
+        bad "detect: requires-gate laravel" "unexpected stacks in [${_sg_actual:-<empty>}]" ;;
+    *) ok "detect: requires-gate laravel" ;;
+esac
+
+# --- stack_tier ---
+
+_sg_tier="$(stack_tier go)"
+[ "$_sg_tier" = "1" ] \
+    && ok "stack_tier: go is tier 1" \
+    || bad "stack_tier: go is tier 1" "got [${_sg_tier:-<empty>}]"
+
+_sg_tier="$(stack_tier ruby)"
+[ "$_sg_tier" = "2" ] \
+    && ok "stack_tier: ruby is tier 2" \
+    || bad "stack_tier: ruby is tier 2" "got [${_sg_tier:-<empty>}]"
+
+# --- stack_known ---
+
+stack_known "go" \
+    && ok "stack_known: go is known" \
+    || bad "stack_known: go is known" "returned non-zero"
+
+stack_known "notastack" \
+    && bad "stack_known: notastack rejected" "returned 0 for unknown tag" \
+    || ok "stack_known: notastack rejected"
+
+# --- stacks_all: all five tier-2 tags present ---
+
+_sg_all="$(stacks_all)"
+for _sg_t2 in java kotlin csharp ruby rust; do
+    case " $_sg_all " in
+        *" $_sg_t2 "*) ok "stacks_all: contains $_sg_t2" ;;
+        *) bad "stacks_all: contains $_sg_t2" "missing from [${_sg_all:-<empty>}]" ;;
+    esac
+done
+
 rm -rf "$DETECT_WORK"

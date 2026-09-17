@@ -43,6 +43,8 @@ protected_files:
     - "zizmor.yml"
     - ".gitleaks.toml"
     - ".sqlfluff"
+    # .slopguard.json selects which stacks are guarded; disabling a stack silences the language layer.
+    - ".slopguard.json"
 
   baselines:
     - "phpstan-baseline.neon"

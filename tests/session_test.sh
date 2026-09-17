@@ -78,9 +78,9 @@ mkdir -p "${_empty}"
 _out="$(printf '%s\n' "${SESSION_JSON}" \
     | CLAUDE_PROJECT_DIR="${_empty}" "${HOOK}" 2>/dev/null)"
 
-printf '%s\n' "${_out}" | grep -q 'stacks detected:' \
-    && ok  "empty project: outputs stacks-detected line" \
-    || bad "empty project: outputs stacks-detected line" "missing in: ${_out}"
+printf '%s\n' "${_out}" | grep -qE 'stacks \(auto\):' \
+    && ok  "empty project: outputs source-labelled stacks line" \
+    || bad "empty project: outputs source-labelled stacks line" "missing in: ${_out}"
 
 printf '%s\n' "${_out}" | grep -q 'missing tools:.*doctor --install' \
     && ok  "missing tools: first session start reports install command" \
@@ -143,6 +143,16 @@ if [ -f "${_sess_dir}/profile.json" ]; then
     [ "${_stacks_val}" = "array" ] \
         && ok  "session state: profile.json .stacks is an array" \
         || bad "session state: profile.json .stacks is an array" "got type: ${_stacks_val}"
+
+    _src_val="$(jq -r '.stacks_source' "${_sess_dir}/profile.json" 2>/dev/null || printf 'ERROR')"
+    [ -n "${_src_val}" ] && [ "${_src_val}" != "null" ] \
+        && ok  "session state: profile.json .stacks_source present" \
+        || bad "session state: profile.json .stacks_source present" "got: ${_src_val}"
+
+    _warn_type="$(jq -r '.stacks_warnings | type' "${_sess_dir}/profile.json" 2>/dev/null || printf 'ERROR')"
+    [ "${_warn_type}" = "array" ] \
+        && ok  "session state: profile.json .stacks_warnings is an array" \
+        || bad "session state: profile.json .stacks_warnings is an array" "got type: ${_warn_type}"
 fi
     _tool_shape="$(jq -r '.tools[0] | has("name") and has("source") and has("version") and has("config_path") and has("config_source")' "${_sess_dir}/profile.json")"
     [ "${_tool_shape}" = "true" ] \

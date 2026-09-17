@@ -1,0 +1,201 @@
+{
+  "php": {
+    "tier": 1,
+    "anchors": {
+      "files": ["composer.json"]
+    },
+    "globs": ["**/*.php"],
+    "skill": "php-antipatterns"
+  },
+  "laravel": {
+    "tier": 1,
+    "requires": "php",
+    "anchors": {
+      "files": ["artisan"],
+      "manifest": {
+        "composer.json": ["\"laravel/framework\""]
+      }
+    },
+    "globs": ["**/*.php", "**/*.blade.php"],
+    "skill": "php-antipatterns"
+  },
+  "symfony": {
+    "tier": 1,
+    "requires": "php",
+    "anchors": {
+      "manifest": {
+        "composer.json": ["\"symfony/framework-bundle\""]
+      }
+    },
+    "globs": ["**/*.php", "**/*.twig"],
+    "skill": "php-antipatterns"
+  },
+  "doctrine": {
+    "tier": 1,
+    "requires": "php",
+    "anchors": {
+      "manifest": {
+        "composer.json": ["\"doctrine/orm\""]
+      }
+    },
+    "globs": ["**/*.php"],
+    "skill": "php-antipatterns"
+  },
+  "go": {
+    "tier": 1,
+    "anchors": {
+      "files": ["go.mod"]
+    },
+    "globs": ["**/*.go"],
+    "skill": "go-antipatterns"
+  },
+  "python": {
+    "tier": 1,
+    "anchors": {
+      "files": ["pyproject.toml", "setup.cfg", "uv.lock", "poetry.lock"],
+      "globs": ["requirements*.txt"]
+    },
+    "globs": ["**/*.py"],
+    "skill": "python-antipatterns"
+  },
+  "node": {
+    "tier": 1,
+    "anchors": {
+      "files": ["package.json"]
+    },
+    "globs": ["**/*.js", "**/*.mjs", "**/*.cjs"],
+    "skill": "node-antipatterns"
+  },
+  "typescript": {
+    "tier": 1,
+    "requires": "node",
+    "anchors": {
+      "files": ["tsconfig.json"]
+    },
+    "globs": ["**/*.ts", "**/*.tsx"],
+    "skill": "ts-react-antipatterns"
+  },
+  "react": {
+    "tier": 1,
+    "requires": "node",
+    "anchors": {
+      "manifest": {
+        "package.json": ["\"react\""]
+      }
+    },
+    "globs": ["**/*.jsx", "**/*.tsx"],
+    "skill": "ts-react-antipatterns"
+  },
+  "vite": {
+    "tier": 1,
+    "requires": "node",
+    "anchors": {
+      "manifest": {
+        "package.json": ["\"vite\""]
+      }
+    },
+    "globs": ["**/*.ts", "**/*.js"],
+    "skill": "ts-react-antipatterns"
+  },
+  "express": {
+    "tier": 1,
+    "requires": "node",
+    "anchors": {
+      "manifest": {
+        "package.json": ["\"express\""]
+      }
+    },
+    "globs": ["**/*.js", "**/*.ts"],
+    "skill": "node-antipatterns"
+  },
+  "terraform": {
+    "tier": 1,
+    "anchors": {
+      "globs": ["*.tf"]
+    },
+    "globs": ["**/*.tf", "**/*.tfvars"],
+    "skill": "iac-antipatterns"
+  },
+  "helm": {
+    "tier": 1,
+    "implies": ["kubernetes"],
+    "anchors": {
+      "files": ["Chart.yaml"]
+    },
+    "globs": ["charts/**", "templates/**/*.yaml"],
+    "skill": "iac-antipatterns"
+  },
+  "kubernetes": {
+    "tier": 1,
+    "anchors": {
+      "files": ["kustomization.yaml", "kustomization.yml"]
+    },
+    "globs": ["**/*.yaml", "**/*.yml"],
+    "skill": "iac-antipatterns"
+  },
+  "docker": {
+    "tier": 1,
+    "anchors": {
+      "files": ["Dockerfile", "docker-compose.yml", "compose.yaml"]
+    },
+    "globs": ["**/Dockerfile", "**/*.dockerfile"],
+    "skill": "iac-antipatterns"
+  },
+  "github-actions": {
+    "tier": 1,
+    "anchors": {
+      "dirs": [".github/workflows"]
+    },
+    "globs": [".github/workflows/**/*.yml", ".github/workflows/**/*.yaml"],
+    "skill": "iac-antipatterns"
+  },
+  "gitlab-ci": {
+    "tier": 1,
+    "anchors": {
+      "files": [".gitlab-ci.yml"]
+    },
+    "globs": [".gitlab-ci.yml"],
+    "skill": "iac-antipatterns"
+  },
+  "java": {
+    "tier": 2,
+    "anchors": {
+      "files": ["pom.xml", "build.gradle", "build.gradle.kts"]
+    },
+    "globs": ["**/*.java"],
+    "skill": "jvm-antipatterns"
+  },
+  "kotlin": {
+    "tier": 2,
+    "anchors": {
+      "files": ["build.gradle.kts", "settings.gradle.kts"]
+    },
+    "globs": ["**/*.kt", "**/*.kts"],
+    "skill": "jvm-antipatterns"
+  },
+  "csharp": {
+    "tier": 2,
+    "anchors": {
+      "files": ["Directory.Build.props"],
+      "globs": ["*.sln", "*.csproj", "**/*.csproj"]
+    },
+    "globs": ["**/*.cs"],
+    "skill": "csharp-antipatterns"
+  },
+  "ruby": {
+    "tier": 2,
+    "anchors": {
+      "files": ["Gemfile", "Gemfile.lock", "config.ru"]
+    },
+    "globs": ["**/*.rb", "**/*.rake", "**/*.erb"],
+    "skill": "ruby-antipatterns"
+  },
+  "rust": {
+    "tier": 2,
+    "anchors": {
+      "files": ["Cargo.toml"]
+    },
+    "globs": ["**/*.rs"],
+    "skill": "rust-antipatterns"
+  }
+}

@@ -52,6 +52,8 @@ notebook_output="$(jq -n \
 run_write_policy Edit phpstan-baseline.neon 'parameters: {}' 'parameters: {}' ask 'protected baseline asks'
 run_write_policy Edit pyproject.toml '' '[tool.ruff]' ask 'removing protected pyproject section asks'
 run_write_policy Edit tsconfig.json '' '"strict": true' ask 'removing strict TypeScript config asks'
+run_write_policy Write .slopguard.json '{"stacks":[]}' '' ask '.slopguard.json write asks'
+run_write_policy Write package.json '{"name":"app"}' '' allow 'package.json write is not blocked'
 
 context_payload="$(jq -n \
     '{session_id:"write-context",tool_name:"Write",tool_input:{file_path:"context.py",content:"print(1)"}}')"
