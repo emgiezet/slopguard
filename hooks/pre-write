@@ -161,7 +161,37 @@ if [ -n "$session_id" ] && [ -n "$language" ]; then
             js-ts) blockers="eval, unsafe HTML injection, unbounded request bodies, and unhandled promises" ;;
             iac) blockers="public exposure, unpinned images/actions, broad IAM, and embedded secrets" ;;
         esac
-        hook_context "Slop Guard first ${language} edit: blocker checks cover ${blockers}."
+        _fw_sentence=""
+        if [ "${CLAUDE_PLUGIN_OPTION_REQUIRE_DOCS_LOOKUP:-true}" != "false" ] \
+                && [ -f "${context_dir}/profile.json" ]; then
+            _fwv_json="$(jq -r '.framework_versions // empty' \
+                "${context_dir}/profile.json" 2>/dev/null || true)"
+            if [ -n "$_fwv_json" ]; then
+                _stacks_file="${SLOPGUARD_STACKS_JSON:-${PLUGIN_ROOT}/rules/stacks.json}"
+                _fw_match="$(jq -r \
+                    --arg fn "$base_name" \
+                    --argjson fwv "$_fwv_json" \
+                    'to_entries
+                     | map(select(
+                         .value.context7 != null
+                         and ($fwv[.key] != null)
+                         and (
+                           (.value.globs // [])
+                           | map(ltrimstr("**/") | gsub("\\."; "\\.") | gsub("\\*"; ".*") | "^" + . + "$")
+                           | map($fn | test(.))
+                           | any
+                         )
+                       ))
+                     | if length > 0 then (.[0] | "\(.key)|\($fwv[.key])") else empty end' \
+                    "$_stacks_file" 2>/dev/null || true)"
+                if [ -n "$_fw_match" ]; then
+                    _fw_name="${_fw_match%%|*}"
+                    _fw_ver="${_fw_match##*|}"
+                    _fw_sentence=" Project runs ${_fw_name} ${_fw_ver} — consult mcp__context7__resolve-library-id then get-library-docs for version-specific conventions before restructuring code."
+                fi
+            fi
+        fi
+        hook_context "Slop Guard first ${language} edit: blocker checks cover ${blockers}.${_fw_sentence}"
     fi
 fi
 

@@ -3,6 +3,27 @@
 All notable changes to Slop Guard will be documented in this file.
 
 ## Unreleased
+- `rules/registries.json` (new): package-registry endpoints for dependency-freshness checks — one entry per ecosystem (`npm`, `packagist`, `pypi`, `crates`, `rubygems`, `nuget`, `go`, `maven`); each entry carries `manifests`, `url` (with `{package}` placeholder), `latest_jq` and `published_jq` expressions; ecosystems whose endpoints could not be verified live are omitted rather than guessed.
+- `rules/stacks.json`: new optional field `context7` on seven framework tags (`laravel`, `symfony`, `doctrine`, `react`, `vite`, `express`, `terraform`) — human-readable query for `mcp__context7__resolve-library-id`; never a hardcoded library id.
+- `lib/docs.sh` (new): `docs_note` / `docs_seen` (case-insensitive, substring-tolerant session-level deduplication into `docs-lookups.json`); `docs_remember` / `docs_recall` (cross-session memory at `${CLAUDE_PLUGIN_DATA}/docs-seen/<library>@<major.minor>`; minor bump invalidates the record).
+- `lib/deps.sh` (new): `deps_check_main` (entry point for `slopguard deps-check`), `deps_fetch` (sole network call, overridable via `SLOPGUARD_FETCH_CMD` for offline tests), `deps_version_cmp`, `deps_age_days`, `deps_verdict` (verdicts: `ok | minor-behind | major-behind | too-fresh | unknown`).
+- `bin/slopguard`: two new subcommands — `note-docs` (reads hook JSON on stdin, records Context7 library lookup, never emits a decision) and `deps-check [--json] [<root>]` (sources `lib/deps.sh`, calls `deps_check_main`); both added to the `ensure_jq` guard list, the dispatch `case`, and `cmd_help`.
+- `hooks/hooks.json`: new `PreToolUse` matcher `mcp__context7__.*` → `slopguard note-docs` (timeout 5 s). Absent Context7 server → matcher never fires; degradation is silent, never a `deny`.
+- `profile.json` (session state): new field `.framework_versions` — map of framework tag → installed version string read from lockfiles; present only for stacks with a `context7` field; absent lockfile → key omitted, never `null`.
+- `.claude-plugin/plugin.json` (`userConfig`): three new options — `require_docs_lookup` (boolean, default `true`); `dependency_freshness` (`off | warn | error`, default `"warn"`); `dependency_cooldown_days` (string, default `"3"`). Hooks receive these as `CLAUDE_PLUGIN_OPTION_REQUIRE_DOCS_LOOKUP`, `CLAUDE_PLUGIN_OPTION_DEPENDENCY_FRESHNESS`, `CLAUDE_PLUGIN_OPTION_DEPENDENCY_COOLDOWN_DAYS`.
+- `docs/recommended-project-settings.json`: `mcpServers` snippet added for Context7 (`npx -y @upstash/context7-mcp`) with a `$comment` explaining that the plugin does not install the server itself and degrades silently when it is absent.
+- Spec updated to v0.3 (2026-09-21):
+  - §4.1: directory tree gains `lib/` subtree (`state.sh`, `detect.sh`, `config.sh`, `typosquat.sh`, `docs.sh`, `deps.sh`) and `rules/registries.json`.
+  - §4.2: `plugin.json` manifest extended with `require_docs_lookup`, `dependency_freshness`, `dependency_cooldown_days`; env-var names documented.
+  - §4.3: `hooks/hooks.json` gains `mcp__context7__.*` matcher; Uwagi extended with degradation note.
+  - §4.4: dispatcher table gains `note-docs` and `deps-check [--json] [<root>]` rows.
+  - §4.5: `docs-lookups.json` session-state file documented; `profile.json.framework_versions` documented.
+  - §7.6 (new): `Dokumentacja frameworków przez Context7` — why hooks cannot call MCP, the observation mechanism, division-of-labour table with `rules/catalog.yaml` (including the conflict rule), `context7` field in `rules/stacks.json`, first-edit injection, cross-session memory.
+  - §7.7 (new): `Świeżość zależności` — current ≠ floating distinction, 3-day cooldown rationale, `rules/registries.json` schema, `slopguard deps-check` verdict table and exit codes, Stop-gate wiring deferred to Etap 4.
+  - §8.8: AP-AGENT-008 (library or framework API used without checking version docs in Context7) and AP-AGENT-009 (new dependency added without verifying it is the current stable version) added to always-on set; 15-line / 1500-character budget cap re-stated explicitly.
+  - §11.3: Etap 1 gains Context7 trace and `deps-check`; Etap 4 gains Stop-gate wiring of `deps-check` and AP-AGENT-010 session-level check.
+  - §12: decisions D17–D20 appended (observe-not-fetch for Context7; 3-day cooldown as `too-fresh`; `dependency_freshness` default `warn`; Context7 scope limited to frameworks and new dependencies).
+- `docs/decisions.md`: D17–D20 appended in file's existing row format (2026-09-21).
 - `rules/stacks.json` (new): single source of truth for stack tags — 17 tier-1 and 5 tier-2
   (`java`, `kotlin`, `csharp`, `ruby`, `rust`) entries with detection anchors, `requires`
   gating, `implies` expansion, file globs and skill routing.

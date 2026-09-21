@@ -7,6 +7,7 @@
 #     touched.json      — files changed in the session with content hash
 #     findings.json     — findings array (written atomically by finding_add)
 #     stop-iterations   — stop-gate iteration counter (plain integer, default 0)
+#     docs-lookups.json — Context7 documentation lookups for this agent (written atomically by docs_note)
 #
 # Locking (D1): mkdir "$dir/.lock" (best-effort) + noclobber tiebreaker
 #   ( set -C; : > "$dir/.lock/owner" ) — O_EXCL open, atomic on all POSIX fs.
@@ -47,6 +48,7 @@ state_init() {
     [ -f "${dir}/touched.json" ]    || printf '{}\n'  > "${dir}/touched.json"
     [ -f "${dir}/findings.json" ]   || printf '[]\n'  > "${dir}/findings.json"
     [ -f "${dir}/stop-iterations" ] || printf '0\n'   > "${dir}/stop-iterations"
+    [ -f "${dir}/docs-lookups.json" ] || printf '[]\n' > "${dir}/docs-lookups.json"
 }
 
 # --------------------------------------------------------------------------- #

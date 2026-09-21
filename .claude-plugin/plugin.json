@@ -37,6 +37,24 @@
       "title": "Tool source",
       "description": "project-first | plugin-only | project-only",
       "default": "project-first"
+    },
+    "require_docs_lookup": {
+      "type": "boolean",
+      "title": "Require Context7 documentation lookup",
+      "description": "Warn when a framework or new dependency is used without a Context7 lookup in the same session.",
+      "default": true
+    },
+    "dependency_freshness": {
+      "type": "string",
+      "title": "Dependency freshness enforcement",
+      "description": "off | warn | error — how to surface too-fresh or outdated pinned dependencies.",
+      "default": "warn"
+    },
+    "dependency_cooldown_days": {
+      "type": "string",
+      "title": "Dependency cooldown window (days)",
+      "description": "Versions published within this many days are flagged as too-fresh (supply-chain risk).",
+      "default": "3"
     }
   }
 }

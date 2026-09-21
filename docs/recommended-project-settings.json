@@ -35,5 +35,12 @@
   },
   "enabledPlugins": {
     "slop-guard@<marketplace>": true
+  },
+  "mcpServers": {
+    "$comment": "The plugin does not install the Context7 MCP server itself — it cannot guarantee its presence and will degrade silently when it is absent. Add this block to your .claude/settings.json or managed settings to enable framework-documentation lookups (§7.6 of the spec). Remove --api-key and its value if you do not have a Context7 account; basic usage is free.",
+    "context7": {
+      "command": "npx",
+      "args": ["-y", "@upstash/context7-mcp"]
+    }
   }
 }

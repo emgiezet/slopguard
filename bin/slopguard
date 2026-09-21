@@ -71,6 +71,38 @@ cmd_pre_write() {
 cmd_pre_read() {
     "${PLUGIN_ROOT}/hooks/pre-read"
 }
+# --------------------------------------------------------------------------- #
+# note-docs
+# --------------------------------------------------------------------------- #
+
+cmd_note_docs() {
+    # shellcheck source=../lib/docs.sh
+    . "${CLAUDE_PLUGIN_ROOT}/lib/docs.sh"
+    local raw; raw="$(cat)"
+    local session_id agent_id library
+    session_id="$(printf '%s' "$raw" | jq -r '.session_id // empty')"
+    agent_id="$(printf '%s'  "$raw" | jq -r '.agent_id  // empty')"
+    library="$(printf '%s'   "$raw" | jq -r \
+        '.tool_input.libraryName // .tool_input.context7CompatibleLibraryID // .tool_input.query // empty')"
+    # Missing session_id or library is a silent no-op — this hook must be invisible.
+    if [ -z "$session_id" ] || [ -z "$library" ]; then
+        exit 0
+    fi
+    docs_note "$session_id" "${agent_id:-}" "$library"
+    exit 0
+}
+
+# --------------------------------------------------------------------------- #
+# deps-check
+# --------------------------------------------------------------------------- #
+
+cmd_deps_check() {
+    local deps_lib="${CLAUDE_PLUGIN_ROOT}/lib/deps.sh"
+    [ -f "$deps_lib" ] || die "lib/deps.sh not found — run: slopguard doctor"
+    # shellcheck source=../lib/deps.sh
+    . "$deps_lib"
+    deps_check_main "$@"
+}
 
 # --------------------------------------------------------------------------- #
 # doctor
@@ -207,6 +239,8 @@ slopguard ${VERSION} — anti-pattern detection and gate for agent-written code.
 
   slopguard doctor             report tool status (installs nothing)
   slopguard doctor --install   install or update pinned tools
+  slopguard note-docs          record a Context7 lookup (reads hook JSON on stdin)
+  slopguard deps-check         check dependency freshness against registries
   slopguard version            print version
   slopguard help               this message
 
@@ -226,7 +260,7 @@ USAGE
 # --------------------------------------------------------------------------- #
 
 case "${1:-help}" in
-    session-start|pre-bash|pre-write|pre-read|doctor) ensure_jq ;;
+    session-start|pre-bash|pre-write|pre-read|doctor|note-docs|deps-check) ensure_jq ;;
 esac
 
 case "${1:-help}" in
@@ -235,6 +269,8 @@ case "${1:-help}" in
     pre-write)         shift; cmd_pre_write "$@" ;;
     pre-read)          shift; cmd_pre_read "$@" ;;
     doctor)            shift; cmd_doctor "$@" ;;
+    note-docs)         shift; cmd_note_docs "$@" ;;
+    deps-check)        shift; cmd_deps_check "$@" ;;
     version|--version) say "slopguard ${VERSION}" ;;
     help|--help|-h)    cmd_help ;;
     *)                 die "unknown command '${1:-}' — try: slopguard help" ;;

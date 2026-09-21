@@ -17,7 +17,8 @@
       }
     },
     "globs": ["**/*.php", "**/*.blade.php"],
-    "skill": "php-antipatterns"
+    "skill": "php-antipatterns",
+    "context7": "laravel"
   },
   "symfony": {
     "tier": 1,
@@ -28,7 +29,8 @@
       }
     },
     "globs": ["**/*.php", "**/*.twig"],
-    "skill": "php-antipatterns"
+    "skill": "php-antipatterns",
+    "context7": "symfony"
   },
   "doctrine": {
     "tier": 1,
@@ -39,7 +41,8 @@
       }
     },
     "globs": ["**/*.php"],
-    "skill": "php-antipatterns"
+    "skill": "php-antipatterns",
+    "context7": "doctrine orm"
   },
   "go": {
     "tier": 1,
@@ -84,7 +87,8 @@
       }
     },
     "globs": ["**/*.jsx", "**/*.tsx"],
-    "skill": "ts-react-antipatterns"
+    "skill": "ts-react-antipatterns",
+    "context7": "react"
   },
   "vite": {
     "tier": 1,
@@ -95,7 +99,8 @@
       }
     },
     "globs": ["**/*.ts", "**/*.js"],
-    "skill": "ts-react-antipatterns"
+    "skill": "ts-react-antipatterns",
+    "context7": "vite"
   },
   "express": {
     "tier": 1,
@@ -106,7 +111,8 @@
       }
     },
     "globs": ["**/*.js", "**/*.ts"],
-    "skill": "node-antipatterns"
+    "skill": "node-antipatterns",
+    "context7": "express"
   },
   "terraform": {
     "tier": 1,
@@ -114,7 +120,8 @@
       "globs": ["*.tf"]
     },
     "globs": ["**/*.tf", "**/*.tfvars"],
-    "skill": "iac-antipatterns"
+    "skill": "iac-antipatterns",
+    "context7": "terraform"
   },
   "helm": {
     "tier": 1,

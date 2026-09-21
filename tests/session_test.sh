@@ -250,6 +250,68 @@ else
 fi
 
 # --------------------------------------------------------------------------- #
+# 10. framework_versions in profile.json + AP-AGENT-008/009 in digest
+# --------------------------------------------------------------------------- #
+
+# Temp stacks.json with context7 added to laravel (Context7Data applies this
+# to the real stacks.json; here we inject it for isolated testing).
+_tmp_stacks="${WORK}/test-stacks.json"
+jq '.laravel += {"context7": "laravel"}' "${PLUGIN_ROOT}/rules/stacks.json" > "${_tmp_stacks}"
+
+# Fixture: Laravel project WITH composer.lock containing laravel/framework.
+_lv_lock="${WORK}/laravel-with-lock"
+mkdir -p "${_lv_lock}"
+printf '{"require":{"laravel/framework":"^12.0"}}' > "${_lv_lock}/composer.json"
+touch "${_lv_lock}/artisan"
+cat > "${_lv_lock}/composer.lock" <<'LOCKEOF'
+{
+    "packages": [
+        {"name": "laravel/framework", "version": "v12.4.1"}
+    ]
+}
+LOCKEOF
+
+_fw_json='{"session_id":"fw-digest-001","cwd":"/tmp","hook_event_name":"SessionStart","agent_id":null,"agent_type":null}'
+_fw_out="$(printf '%s\n' "${_fw_json}" \
+    | CLAUDE_PROJECT_DIR="${_lv_lock}" SLOPGUARD_STACKS_JSON="${_tmp_stacks}" "${HOOK}" 2>/dev/null)"
+_fw_dir="${_TEST_DATA}/sessions/fw-digest-001"
+
+if [ -f "${_fw_dir}/profile.json" ]; then
+    _lv_ver="$(jq -r '.framework_versions.laravel // empty' "${_fw_dir}/profile.json")"
+    [ -n "$_lv_ver" ] \
+        && ok  "framework_versions: composer.lock yields .laravel (${_lv_ver})" \
+        || bad "framework_versions: laravel version" "expected non-empty, got empty"
+else
+    bad "framework_versions: profile.json missing for fw-digest-001" ""
+fi
+
+# Fixture: Laravel project WITHOUT composer.lock → no laravel key.
+_lv_nolock="${WORK}/laravel-nolock"
+mkdir -p "${_lv_nolock}"
+printf '{"require":{"laravel/framework":"^12.0"}}' > "${_lv_nolock}/composer.json"
+touch "${_lv_nolock}/artisan"
+
+_fw_nl_json='{"session_id":"fw-nolock-001","cwd":"/tmp","hook_event_name":"SessionStart","agent_id":null,"agent_type":null}'
+printf '%s\n' "${_fw_nl_json}" \
+    | CLAUDE_PROJECT_DIR="${_lv_nolock}" SLOPGUARD_STACKS_JSON="${_tmp_stacks}" "${HOOK}" >/dev/null 2>&1
+_fw_nl_dir="${_TEST_DATA}/sessions/fw-nolock-001"
+
+if [ -f "${_fw_nl_dir}/profile.json" ]; then
+    _nokey="$(jq -r '(.framework_versions // {}) | has("laravel") | not' "${_fw_nl_dir}/profile.json")"
+    [ "$_nokey" = "true" ] \
+        && ok  "framework_versions: missing composer.lock omits laravel key" \
+        || bad "framework_versions: missing composer.lock" "laravel key unexpectedly present"
+fi
+
+# Digest must contain AP-AGENT-008 and AP-AGENT-009.
+printf '%s\n' "${_fw_out}" | grep -q 'AP-AGENT-008' \
+    && ok  "digest: AP-AGENT-008 present" \
+    || bad "digest: AP-AGENT-008 present" "missing in digest"
+printf '%s\n' "${_fw_out}" | grep -q 'AP-AGENT-009' \
+    && ok  "digest: AP-AGENT-009 present" \
+    || bad "digest: AP-AGENT-009 present" "missing in digest"
+
+# --------------------------------------------------------------------------- #
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ] || exit 1

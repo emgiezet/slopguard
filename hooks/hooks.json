@@ -47,6 +47,17 @@
             "timeout": 10
           }
         ]
+      },
+      {
+        "matcher": "mcp__context7__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/bin/slopguard",
+            "args": ["note-docs"],
+            "timeout": 5
+          }
+        ]
       }
     ]
   }

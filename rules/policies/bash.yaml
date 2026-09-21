@@ -29,13 +29,13 @@ deny:
 ask:
   - id: node-add-package
     pattern: '^[[:space:]]*(npm|pnpm|yarn|bun)[[:space:]]+(add|install|i)([[:space:]]+--?[^[:space:]]+)*[[:space:]]+[^-[:space:]]'
-    reason: "New dependency. Confirm name, maintainer, release age, and license."
+    reason: "New dependency. Confirm name, maintainer, release age, and license. Pin the current stable version — check it with: slopguard deps-check."
   - id: composer-add-package
     pattern: '^[[:space:]]*composer[[:space:]]+require([[:space:]]+--?[^[:space:]]+)*[[:space:]]+[^-[:space:]]'
-    reason: "New dependency. Confirm name, maintainer, release age, and license."
+    reason: "New dependency. Confirm name, maintainer, release age, and license. Pin the current stable version — check it with: slopguard deps-check."
   - id: python-add-package
     pattern: '^[[:space:]]*(pip[[:space:]]+install|uv[[:space:]]+add|poetry[[:space:]]+add)([[:space:]]+--?[^[:space:]]+)*[[:space:]]+[^-[:space:]]'
-    reason: "New dependency. Confirm name, maintainer, release age, and license."
+    reason: "New dependency. Confirm name, maintainer, release age, and license. Pin the current stable version — check it with: slopguard deps-check."
   - id: go-latest
     pattern: '^[[:space:]]*go[[:space:]]+(get|install)[[:space:]]+[^[:space:]]+@latest([[:space:]]|$)'
     reason: "Pin an explicit version instead of @latest."

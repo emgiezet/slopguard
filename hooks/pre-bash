@@ -43,6 +43,17 @@ _normalize_component() {
     printf '%s' "${words[*]}"
 }
 
+# _is_dep_add <normalized-component>
+# Returns 0 when the component is a package-manager dependency-add command.
+# Keep in sync with node-add-package / composer-add-package / python-add-package
+# reason strings in rules/policies/bash.yaml.
+_is_dep_add() {
+    local c="$1"
+    [[ "$c" =~ ^[[:space:]]*(npm|pnpm|yarn|bun)[[:space:]]+(add|install|i)[[:space:]] ]] \
+        || [[ "$c" =~ ^[[:space:]]*composer[[:space:]]+require[[:space:]] ]] \
+        || [[ "$c" =~ ^[[:space:]]*(pip[[:space:]]+install|uv[[:space:]]+add|poetry[[:space:]]+add)[[:space:]] ]]
+}
+
 components=()
 while IFS= read -r component; do
     components[${#components[@]}]="$component"
@@ -87,7 +98,11 @@ for component in "${components[@]}"; do
         for pattern in "${ASK_PATTERNS[@]}"; do
             if [[ "$normalized_component" =~ $pattern ]]; then
                 decision="ask"
-                reason="Action requires confirmation: $component$(typosquat_hint "$normalized_component")"
+                if _is_dep_add "$normalized_component"; then
+                    reason="New dependency. Confirm name, maintainer, release age, and license. Pin the current stable version — check it with: slopguard deps-check.$(typosquat_hint "$normalized_component")"
+                else
+                    reason="Action requires confirmation: $component$(typosquat_hint "$normalized_component")"
+                fi
                 break
             fi
         done

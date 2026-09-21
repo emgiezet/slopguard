@@ -72,3 +72,55 @@ reason="$(printf '%s' "$output" | jq -r '.hookSpecificOutput.permissionDecisionR
 [ "$decision" = deny ] && printf '%s' "$reason" | grep -qF 'no human in this session' \
     && ok 'pre-write: headless protected edit becomes reasoned deny' \
     || bad 'pre-write: headless protected edit' "decision=${decision}, reason=${reason}"
+# Framework context in first-edit message
+# Set up isolated state dir + profile.json with framework_versions.laravel,
+# and a stacks.json that carries the context7 field for laravel.
+_fw_w_data="${TMPDIR:-/tmp}/slop-guard-fw-write-$$"
+mkdir -p "${_fw_w_data}"
+jq '.laravel += {"context7": "laravel"}' "${PLUGIN_ROOT}/rules/stacks.json" \
+    > "${_fw_w_data}/stacks.json"
+
+_fw_w_sess="fw-write-ctx-$$"
+_fw_w_sess_dir="${_fw_w_data}/sessions/${_fw_w_sess}"
+mkdir -p "${_fw_w_sess_dir}"
+printf '{"stacks":["php","laravel"],"stacks_source":"auto","stacks_warnings":[],"tools":[],"config_sources":{},"framework_versions":{"laravel":"v12.4.1"}}\n' \
+    > "${_fw_w_sess_dir}/profile.json"
+
+_fw_w_first="$(jq -n --arg sid "${_fw_w_sess}" \
+    '{session_id:$sid,tool_name:"Write",tool_input:{file_path:"app/Controller.php",content:"<?php"}}' \
+    | CLAUDE_PLUGIN_DATA="${_fw_w_data}" SLOPGUARD_STACKS_JSON="${_fw_w_data}/stacks.json" \
+      "${WRITE_HOOK}")"
+_fw_w_ctx="$(printf '%s' "${_fw_w_first}" | jq -r '.hookSpecificOutput.additionalContext // empty')"
+printf '%s' "${_fw_w_ctx}" | grep -q 'laravel' \
+    && printf '%s' "${_fw_w_ctx}" | grep -q 'v12.4.1' \
+    && printf '%s' "${_fw_w_ctx}" | grep -q 'mcp__context7__resolve-library-id' \
+    && ok  'pre-write: laravel version and Context7 call appear in first PHP edit' \
+    || bad 'pre-write: laravel framework context' "ctx=${_fw_w_ctx}"
+
+# Second edit of another PHP file in same session — no repeat of framework context.
+_fw_w_second="$(jq -n --arg sid "${_fw_w_sess}" \
+    '{session_id:$sid,tool_name:"Write",tool_input:{file_path:"app/Model.php",content:"<?php"}}' \
+    | CLAUDE_PLUGIN_DATA="${_fw_w_data}" SLOPGUARD_STACKS_JSON="${_fw_w_data}/stacks.json" \
+      "${WRITE_HOOK}")"
+_fw_w_ctx2="$(printf '%s' "${_fw_w_second}" | jq -r '.hookSpecificOutput.additionalContext // empty')"
+[ -z "${_fw_w_ctx2}" ] \
+    && ok  'pre-write: second PHP edit in same session omits framework context' \
+    || bad 'pre-write: second PHP edit framework repeat' "ctx=${_fw_w_ctx2}"
+
+# REQUIRE_DOCS_LOOKUP=false — blocker sentence present, framework sentence absent.
+_fw_w_nodocs_sess="fw-nodocs-$$"
+_fw_w_nodocs_dir="${_fw_w_data}/sessions/${_fw_w_nodocs_sess}"
+mkdir -p "${_fw_w_nodocs_dir}"
+printf '{"stacks":["php","laravel"],"stacks_source":"auto","stacks_warnings":[],"tools":[],"config_sources":{},"framework_versions":{"laravel":"v12.4.1"}}\n' \
+    > "${_fw_w_nodocs_dir}/profile.json"
+_fw_w_nodocs="$(jq -n --arg sid "${_fw_w_nodocs_sess}" \
+    '{session_id:$sid,tool_name:"Write",tool_input:{file_path:"Service.php",content:"<?php"}}' \
+    | CLAUDE_PLUGIN_DATA="${_fw_w_data}" SLOPGUARD_STACKS_JSON="${_fw_w_data}/stacks.json" \
+      CLAUDE_PLUGIN_OPTION_REQUIRE_DOCS_LOOKUP=false "${WRITE_HOOK}")"
+_fw_w_nodocs_ctx="$(printf '%s' "${_fw_w_nodocs}" | jq -r '.hookSpecificOutput.additionalContext // empty')"
+printf '%s' "${_fw_w_nodocs_ctx}" | grep -q 'blocker checks cover' \
+    && ! printf '%s' "${_fw_w_nodocs_ctx}" | grep -q 'mcp__context7' \
+    && ok  'pre-write: REQUIRE_DOCS_LOOKUP=false suppresses framework sentence while keeping blockers' \
+    || bad 'pre-write: REQUIRE_DOCS_LOOKUP=false' "ctx=${_fw_w_nodocs_ctx}"
+
+rm -rf "${_fw_w_data}"

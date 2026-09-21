@@ -1,0 +1,57 @@
+{
+  "npm": {
+    "manifests": ["package.json"],
+    "lockfiles": ["package-lock.json", "pnpm-lock.yaml", "yarn.lock", "bun.lockb"],
+    "url": "https://registry.npmjs.org/{package}",
+    "latest_jq": ".\"dist-tags\".latest",
+    "published_jq": ".time[$v]"
+  },
+  "packagist": {
+    "manifests": ["composer.json"],
+    "lockfiles": ["composer.lock"],
+    "url": "https://packagist.org/packages/{package}.json",
+    "latest_jq": ".package.versions | to_entries | map(select(.key | test(\"^v?[0-9]+\\\\.[0-9]+\\\\.[0-9]+$\"))) | sort_by(.key | ltrimstr(\"v\") | split(\".\") | map(tonumber)) | last | .key",
+    "published_jq": ".package.versions[$v].time"
+  },
+  "pypi": {
+    "manifests": ["pyproject.toml", "requirements.txt", "setup.py", "setup.cfg"],
+    "lockfiles": ["poetry.lock", "uv.lock", "Pipfile.lock"],
+    "url": "https://pypi.org/pypi/{package}/json",
+    "latest_jq": ".info.version",
+    "published_jq": ".urls[0].upload_time_iso_8601"
+  },
+  "rubygems": {
+    "manifests": ["Gemfile"],
+    "lockfiles": ["Gemfile.lock"],
+    "url": "https://rubygems.org/api/v1/gems/{package}.json",
+    "latest_jq": ".version",
+    "published_jq": ".version_created_at"
+  },
+  "nuget": {
+    "manifests": [
+      "*.csproj",
+      "*.fsproj",
+      "packages.config",
+      "Directory.Packages.props"
+    ],
+    "lockfiles": ["packages.lock.json"],
+    "url": "https://api.nuget.org/v3-flatcontainer/{package}/index.json",
+    "latest_jq": "[.versions[] | select(test(\"^[0-9]+\\\\.[0-9]+\\\\.[0-9]+$\"))] | last",
+    "published_url": "https://api.nuget.org/v3/registration5-semver1/{package}/{version}.json",
+    "published_jq": ".published"
+  },
+  "go": {
+    "manifests": ["go.mod"],
+    "lockfiles": ["go.sum"],
+    "url": "https://proxy.golang.org/{package}/@latest",
+    "latest_jq": ".Version",
+    "published_jq": ".Time"
+  },
+  "maven": {
+    "manifests": ["pom.xml"],
+    "lockfiles": [],
+    "url": "https://search.maven.org/solrsearch/select?q={package}&rows=1&wt=json",
+    "latest_jq": ".response.docs[0].latestVersion",
+    "published_jq": ".response.docs[0].timestamp / 1000 | todate"
+  }
+}

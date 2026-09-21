@@ -48,3 +48,24 @@ reason="$(printf '%s' "$output" | jq -r '.hookSpecificOutput.permissionDecisionR
 [ "$decision" = deny ] && printf '%s' "$reason" | grep -qF 'no human in this session' \
     && ok 'pre-bash: headless ask becomes reasoned deny' \
     || bad 'pre-bash: headless ask' "decision=${decision}, reason=${reason}"
+# Verify the extended freshness-guidance reason for dependency-add commands.
+depcheck_npm="$(jq -n --arg command 'npm install left-pad' \
+    '{tool_name:"Bash",tool_input:{command:$command}}' | "$BASH_HOOK")"
+depcheck_npm_reason="$(printf '%s' "$depcheck_npm" | jq -r '.hookSpecificOutput.permissionDecisionReason')"
+printf '%s' "$depcheck_npm_reason" | grep -qF 'slopguard deps-check' \
+    && ok 'pre-bash: npm install reason mentions slopguard deps-check' \
+    || bad 'pre-bash: npm install deps-check reason' "$depcheck_npm_reason"
+
+depcheck_pip="$(jq -n --arg command 'pip install requests' \
+    '{tool_name:"Bash",tool_input:{command:$command}}' | "$BASH_HOOK")"
+depcheck_pip_reason="$(printf '%s' "$depcheck_pip" | jq -r '.hookSpecificOutput.permissionDecisionReason')"
+printf '%s' "$depcheck_pip_reason" | grep -qF 'slopguard deps-check' \
+    && ok 'pre-bash: pip install reason mentions slopguard deps-check' \
+    || bad 'pre-bash: pip install deps-check reason' "$depcheck_pip_reason"
+
+depcheck_composer="$(jq -n --arg command 'composer require vendor/package' \
+    '{tool_name:"Bash",tool_input:{command:$command}}' | "$BASH_HOOK")"
+depcheck_composer_reason="$(printf '%s' "$depcheck_composer" | jq -r '.hookSpecificOutput.permissionDecisionReason')"
+printf '%s' "$depcheck_composer_reason" | grep -qF 'slopguard deps-check' \
+    && ok 'pre-bash: composer require reason mentions slopguard deps-check' \
+    || bad 'pre-bash: composer require deps-check reason' "$depcheck_composer_reason"

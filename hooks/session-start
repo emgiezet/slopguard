@@ -77,6 +77,106 @@ main() {
             <<< "$_tools_json")"
     done < <(lock_tools)
 
+    # Collect installed versions for stacks that carry a context7 field in stacks.json.
+    # Lockfiles are read at most once each.
+    local _fw_versions _composer_lock _pkg_lock_data _pnpm_lock_data _tf_ver
+    local _ctx7 _ver _tf_file _stacks_file _sg_stack
+    local _needs_composer _needs_npm _needs_terraform
+    local -a _fw_pending=()
+    _fw_versions='{}'
+    _composer_lock=""
+    _pkg_lock_data=""
+    _pnpm_lock_data=""
+    _tf_ver=""
+    _needs_composer=false
+    _needs_npm=false
+    _needs_terraform=false
+    _stacks_file="${SLOPGUARD_STACKS_JSON:-${CLAUDE_PLUGIN_ROOT}/rules/stacks.json}"
+
+    # shellcheck disable=SC2086
+    for _sg_stack in ${SG_STACKS:-}; do
+        _ctx7="$(jq -r --arg t "$_sg_stack" '.[$t].context7 // empty' \
+            "$_stacks_file" 2>/dev/null || true)"
+        [ -n "$_ctx7" ] || continue
+        _fw_pending+=("$_sg_stack")
+        case "$_sg_stack" in
+            laravel|symfony|doctrine) _needs_composer=true ;;
+            react|vite|express)       _needs_npm=true ;;
+            terraform)                _needs_terraform=true ;;
+        esac
+    done
+
+    if [ "$_needs_composer" = true ] && [ -f "${_d}/composer.lock" ]; then
+        _composer_lock="$(cat "${_d}/composer.lock" 2>/dev/null || true)"
+    fi
+    if [ "$_needs_npm" = true ]; then
+        if [ -f "${_d}/package-lock.json" ]; then
+            _pkg_lock_data="$(cat "${_d}/package-lock.json" 2>/dev/null || true)"
+        elif [ -f "${_d}/pnpm-lock.yaml" ]; then
+            _pnpm_lock_data="$(cat "${_d}/pnpm-lock.yaml" 2>/dev/null || true)"
+        fi
+    fi
+    if [ "$_needs_terraform" = true ]; then
+        for _tf_file in "${_d}"/*.tf; do
+            [ -f "$_tf_file" ] || continue
+            _tf_ver="$(grep -m1 'required_version' "$_tf_file" 2>/dev/null \
+                | sed 's/.*required_version[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/' || true)"
+            [ -n "$_tf_ver" ] && break
+        done
+    fi
+
+    if [ "${#_fw_pending[@]}" -gt 0 ]; then
+        for _sg_stack in "${_fw_pending[@]}"; do
+            _ver=""
+            case "$_sg_stack" in
+                laravel)
+                    [ -n "$_composer_lock" ] && \
+                        _ver="$(jq -r '.packages[] | select(.name=="laravel/framework") | .version' \
+                            <<< "$_composer_lock" 2>/dev/null | head -1 || true)" ;;
+                symfony)
+                    [ -n "$_composer_lock" ] && \
+                        _ver="$(jq -r '.packages[] | select(.name=="symfony/framework-bundle") | .version' \
+                            <<< "$_composer_lock" 2>/dev/null | head -1 || true)" ;;
+                doctrine)
+                    [ -n "$_composer_lock" ] && \
+                        _ver="$(jq -r '.packages[] | select(.name=="doctrine/orm") | .version' \
+                            <<< "$_composer_lock" 2>/dev/null | head -1 || true)" ;;
+                react)
+                    if [ -n "$_pkg_lock_data" ]; then
+                        _ver="$(jq -r '.packages["node_modules/react"].version // empty' \
+                            <<< "$_pkg_lock_data" 2>/dev/null || true)"
+                    elif [ -n "$_pnpm_lock_data" ]; then
+                        _ver="$(printf '%s' "$_pnpm_lock_data" \
+                            | grep -m1 -E '^/?react@[0-9]' \
+                            | sed 's|.*react@\([0-9][^:/]*\).*|\1|' || true)"
+                    fi ;;
+                vite)
+                    if [ -n "$_pkg_lock_data" ]; then
+                        _ver="$(jq -r '.packages["node_modules/vite"].version // empty' \
+                            <<< "$_pkg_lock_data" 2>/dev/null || true)"
+                    elif [ -n "$_pnpm_lock_data" ]; then
+                        _ver="$(printf '%s' "$_pnpm_lock_data" \
+                            | grep -m1 -E '^/?vite@[0-9]' \
+                            | sed 's|.*vite@\([0-9][^:/]*\).*|\1|' || true)"
+                    fi ;;
+                express)
+                    if [ -n "$_pkg_lock_data" ]; then
+                        _ver="$(jq -r '.packages["node_modules/express"].version // empty' \
+                            <<< "$_pkg_lock_data" 2>/dev/null || true)"
+                    elif [ -n "$_pnpm_lock_data" ]; then
+                        _ver="$(printf '%s' "$_pnpm_lock_data" \
+                            | grep -m1 -E '^/?express@[0-9]' \
+                            | sed 's|.*express@\([0-9][^:/]*\).*|\1|' || true)"
+                    fi ;;
+                terraform)
+                    _ver="$_tf_ver" ;;
+            esac
+            [ -n "$_ver" ] || continue
+            _fw_versions="$(jq -c --arg k "$_sg_stack" --arg v "$_ver" \
+                '. + {($k): $v}' <<< "$_fw_versions")"
+        done
+    fi
+
     jq \
         --argjson stacks "$(printf '%s' "${SG_STACKS:-}" | jq -Rcs 'split(" ") | map(select(length > 0))')" \
         --arg stacks_source "${SG_STACKS_SOURCE:-auto}" \
@@ -86,11 +186,13 @@ main() {
         --arg python_cfg "$_python_cfg" \
         --arg node_cfg "$_node_cfg" \
         --argjson tools "$_tools_json" \
+        --argjson fw_versions "$_fw_versions" \
         '.stacks = $stacks
          | .stacks_source = $stacks_source
          | .stacks_warnings = $stacks_warnings
          | .tools = $tools
-         | .config_sources = {php: $php_cfg, go: $go_cfg, python: $python_cfg, node: $node_cfg}' \
+         | .config_sources = {php: $php_cfg, go: $go_cfg, python: $python_cfg, node: $node_cfg}
+         | .framework_versions = $fw_versions' \
         "${_sdir}/profile.json" > "${_sdir}/profile.json.tmp" \
         && mv "${_sdir}/profile.json.tmp" "${_sdir}/profile.json"
 
@@ -132,6 +234,8 @@ AP-AGENT-004: new dependency installs need confirmation; curl|sh is always block
 AP-AGENT-005: .env*, private keys, and credential files are denied for reading.
 AP-AGENT-006: hard-coded credentials in written files are detected and blocked.
 AP-AGENT-007: edits outside the targeted diff scope are flagged at turn end.
+AP-AGENT-008: unfamiliar library or framework API — consult Context7 docs before writing code against it.
+AP-AGENT-009: new dependencies enter pinned to the current stable version; never @latest, never a floating range.
 DIGEST
 }
 
