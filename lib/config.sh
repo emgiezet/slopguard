@@ -215,7 +215,10 @@ config_resolve_stacks() {
         stack_known "$_it" && _final="$(_detect_add "$_final" "$_it")"
     done
 
+    # Outputs of this library, read by callers after sourcing (see the header above).
+    # shellcheck disable=SC2034
     SG_STACKS="$(_config_order "$_final")"
+    # shellcheck disable=SC2034
     SG_STACKS_SOURCE="$_src"
     return 0
 }

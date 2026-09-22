@@ -230,7 +230,10 @@ _dt_rc=$?
 # =========================================================================== #
 
 (
+    # Read by deps_check_main inside this subshell, not exported on purpose.
+    # shellcheck disable=SC2034
     CLAUDE_PLUGIN_OPTION_ALLOW_NETWORK=true
+    # shellcheck disable=SC2034
     CLAUDE_PLUGIN_OPTION_DEPENDENCY_FRESHNESS=warn
     deps_check_main "${DEPS_WORK}/proj-major" > /dev/null 2>&1
 )
