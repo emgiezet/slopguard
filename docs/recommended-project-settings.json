@@ -11,7 +11,12 @@
     "",
     "In a managed-settings deployment the platform layer is the hard guarantee;",
     "the hook is defence in depth.  In a project-only deployment the hook is the",
-    "only enforcement layer, so the permissions block below MUST be present."
+    "only enforcement layer, so the permissions block below MUST be present.",
+    "",
+    "On omp (Oh My Pi) the platform-level 'permissions' floor does not exist — omp",
+    "has no hooks/hooks.json surface.  The extension adapter (extensions/omp.mjs) is",
+    "the only enforcement layer there, which makes installing it non-optional rather",
+    "than defence in depth.  The permissions block below has no effect on omp."
   ],
   "$comment_ext": "Project extensions: .slopguard/** (mapping overrides and tool descriptors) should be committed to the repository and reviewed like any other quality gate — these files control which binaries the guard executes and which rule severities are overridden. All writes to .slopguard/** require human approval (pre-write asks, same as .slopguard.json).",
   "permissions": {

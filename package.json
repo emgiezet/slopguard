@@ -1,0 +1,7 @@
+{
+  "name": "@aisdlc/slop-guard",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "omp": { "extensions": ["./extensions/omp.mjs"] }
+}
