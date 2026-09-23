@@ -197,3 +197,106 @@ _cmp_json "hook_ask: advisory emits context" \
 _cmp_json "hook_secret_deny: advisory still denies" \
     "$(CLAUDE_PLUGIN_OPTION_ENFORCEMENT_MODE=advisory hook_secret_deny "secret found")" \
     '{"hookSpecificOutput":{"permissionDecision":"deny","permissionDecisionReason":"secret found"}}'
+
+# --------------------------------------------------------------------------- #
+# 10. Grok runtime: camelCase normalization at hook_input boundary
+# --------------------------------------------------------------------------- #
+# Override _SLOPGUARD_RUNTIME for each Grok test; restore to ensure existing
+# Claude-mode assertions above are unaffected.
+_sg_saved_runtime="$_SLOPGUARD_RUNTIME"
+_SLOPGUARD_RUNTIME="grok"
+
+_HOOK_INPUT=""
+hook_input < "${CONTRACT}/grok-pre-tool-bash.json"
+
+val="$(hook_field .session_id)"
+[ "$val" = "grok-sess-abc123" ] \
+    && ok  "grok: camelCase sessionId → .session_id after hook_input" \
+    || bad "grok: camelCase sessionId normalization" "got: $val"
+
+val="$(hook_field .tool_name)"
+[ "$val" = "Bash" ] \
+    && ok  "grok: camelCase toolName → .tool_name after hook_input" \
+    || bad "grok: camelCase toolName normalization" "got: $val"
+
+val="$(hook_field .hook_event_name)"
+[ "$val" = "PreToolUse" ] \
+    && ok  "grok: camelCase hookEventName → .hook_event_name after hook_input" \
+    || bad "grok: camelCase hookEventName normalization" "got: $val"
+
+val="$(hook_field .tool_input.command)"
+[ "$val" = "rm package-lock.json" ] \
+    && ok  "grok: camelCase toolInput → .tool_input.command after hook_input" \
+    || bad "grok: camelCase toolInput normalization" "got: $val"
+
+# Write fixture: toolName and toolInput normalization
+_HOOK_INPUT=""
+hook_input < "${CONTRACT}/grok-pre-tool-write.json"
+
+val="$(hook_field .tool_name)"
+[ "$val" = "Write" ] \
+    && ok  "grok: write fixture toolName → .tool_name" \
+    || bad "grok: write fixture toolName" "got: $val"
+
+val="$(hook_field .tool_input.file_path)"
+[ "$val" = "/home/user/myproject/secret.py" ] \
+    && ok  "grok: write fixture toolInput.file_path accessible after normalization" \
+    || bad "grok: write fixture toolInput.file_path" "got: $val"
+
+# --------------------------------------------------------------------------- #
+# 11. Grok runtime: per-host response envelopes
+# --------------------------------------------------------------------------- #
+
+_cmp_json "grok: hook_deny emits Grok {\"decision\":\"deny\"} envelope" \
+    "$(hook_deny "blocked by policy")" \
+    '{"decision":"deny","reason":"blocked by policy"}'
+
+_cmp_json "grok: hook_secret_deny emits Grok {\"decision\":\"deny\"} envelope" \
+    "$(hook_secret_deny "secret found")" \
+    '{"decision":"deny","reason":"secret found"}'
+
+_cmp_json "grok: hook_ask becomes deny (fail-closed, no interactive ask)" \
+    "$(hook_ask "please confirm")" \
+    '{"decision":"deny","reason":"please confirm"}'
+
+actual="$(hook_allow)"
+[ -z "$actual" ] \
+    && ok  "grok: hook_allow produces no output (exit 0 = allow signal)" \
+    || bad "grok: hook_allow silent on Grok" "got: $actual"
+
+# hook_context goes to stderr on Grok; stdout must be empty
+actual_out="$(hook_context "analysis: 0 issues" 2>/dev/null)"
+[ -z "$actual_out" ] \
+    && ok  "grok: hook_context writes nothing to stdout" \
+    || bad "grok: hook_context stdout empty" "got: $actual_out"
+
+actual_err="$(hook_context "analysis: 0 issues" 2>&1 >/dev/null)"
+[ -n "$actual_err" ] \
+    && ok  "grok: hook_context writes advisory text to stderr" \
+    || bad "grok: hook_context stderr non-empty" "got: $actual_err"
+
+# hook_message goes to stderr on Grok; stdout must be empty
+actual_out="$(hook_message "1 blocker found" 2>/dev/null)"
+[ -z "$actual_out" ] \
+    && ok  "grok: hook_message writes nothing to stdout" \
+    || bad "grok: hook_message stdout empty" "got: $actual_out"
+
+# --------------------------------------------------------------------------- #
+# 12. Stale GROK_PLUGIN_ROOT under Claude still answers in Claude envelope
+# --------------------------------------------------------------------------- #
+_SLOPGUARD_RUNTIME="$_sg_saved_runtime"
+
+# When GROK_PLUGIN_ROOT is inherited but CLAUDE_PLUGIN_ROOT differs, the
+# compound detection condition fails and Grok mode is NOT activated.
+stale_out="$(
+    PLUGIN_ROOT="$PLUGIN_ROOT" \
+    GROK_PLUGIN_ROOT=/stale/grok \
+    CLAUDE_PLUGIN_ROOT=/real/claude \
+        bash -c '. "${PLUGIN_ROOT}/lib/hook.sh"
+                  hook_deny "stale test"' 2>/dev/null
+)"
+stale_decision="$(printf '%s' "$stale_out" \
+    | jq -r '.hookSpecificOutput.permissionDecision // empty')"
+[ "$stale_decision" = "deny" ] \
+    && ok  "grok: stale GROK_PLUGIN_ROOT + different CLAUDE_PLUGIN_ROOT → Claude envelope" \
+    || bad "grok: stale env detection" "got: $stale_out"

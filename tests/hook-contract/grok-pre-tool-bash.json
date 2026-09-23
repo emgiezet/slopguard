@@ -1,0 +1,8 @@
+{
+  "hookEventName": "PreToolUse",
+  "sessionId": "grok-sess-abc123",
+  "cwd": "/home/user/myproject",
+  "workspaceRoot": "/home/user/myproject",
+  "toolName": "Bash",
+  "toolInput": {"command": "rm package-lock.json"}
+}

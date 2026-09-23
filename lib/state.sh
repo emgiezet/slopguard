@@ -18,6 +18,10 @@
 # Path helpers
 # --------------------------------------------------------------------------- #
 
+# Resolve plugin data directory: prefer GROK_PLUGIN_DATA (Grok runtime),
+# fall back to CLAUDE_PLUGIN_DATA (Claude/Codex or via slopguard normalization).
+[ -n "${GROK_PLUGIN_DATA:-}" ] && : "${CLAUDE_PLUGIN_DATA:=$GROK_PLUGIN_DATA}"
+
 # state_dir <session_id> [<agent_id>]
 state_dir() {
     local session_id="$1"

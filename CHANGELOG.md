@@ -3,6 +3,7 @@
 All notable changes to Slop Guard will be documented in this file.
 
 ## Unreleased
+- Grok runtime support: `lib/hook.sh` detects Grok via a compound condition on `GROK_PLUGIN_ROOT` and `CLAUDE_PLUGIN_ROOT` (presence of `GROK_PLUGIN_ROOT` alone is insufficient — a stale inherited variable in a Claude session would cause every deny to be silently ignored). `hook_input` normalizes Grok's camelCase event fields (`sessionId`, `hookEventName`, `toolName`, `toolInput`) to snake_case at the boundary so all policy scripts remain host-agnostic. `hook_deny`, `hook_secret_deny`, `hook_ask`, `hook_allow`, `hook_context`, and `hook_message` emit the host-correct envelope: Grok uses `{"decision":"deny","reason":…}` and exit-0 for allow; `hook_ask` becomes deny on Grok (fail-closed). `lib/state.sh`: `CLAUDE_PLUGIN_DATA` falls back to `GROK_PLUGIN_DATA` when the latter is set. `bin/slopguard`: seeds `CLAUDE_PLUGIN_ROOT`/`CLAUDE_PLUGIN_DATA` from `GROK_PLUGIN_ROOT`/`GROK_PLUGIN_DATA` at startup, making the rest of the dispatcher host-agnostic. No `hooks/*` script required changes. Fixtures: `tests/hook-contract/grok-pre-tool-bash.json`, `tests/hook-contract/grok-pre-tool-write.json` (camelCase, as Grok sends them). Decision D22 recorded.
 - `hooks/pre-write` + `bin/slopguard note-docs`: the Context7 memory is now wired end to end.
   A lookup that matches a framework the project runs records `<context7-query>@<major.minor>`;
   the first-edit instruction is suppressed when the agent already consulted the docs in this

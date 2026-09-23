@@ -12,9 +12,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 PLUGIN_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 MANIFEST="${PLUGIN_ROOT}/.claude-plugin/plugin.json"
 
-# When invoked by the Claude Code runtime, CLAUDE_PLUGIN_ROOT and
-# CLAUDE_PLUGIN_DATA are injected. Fall back to derived paths for standalone use.
+# Normalize plugin root and data across runtimes.
+# Grok injects GROK_PLUGIN_ROOT/GROK_PLUGIN_DATA; Claude/Codex inject CLAUDE_* directly.
+# Seeding CLAUDE_* from GROK_* here keeps all downstream scripts host-agnostic.
+[ -n "${GROK_PLUGIN_ROOT:-}" ] && : "${CLAUDE_PLUGIN_ROOT:=$GROK_PLUGIN_ROOT}"
 : "${CLAUDE_PLUGIN_ROOT:=$PLUGIN_ROOT}"
+[ -n "${GROK_PLUGIN_DATA:-}" ] && : "${CLAUDE_PLUGIN_DATA:=$GROK_PLUGIN_DATA}"
 : "${CLAUDE_PLUGIN_DATA:=${XDG_DATA_HOME:-$HOME/.local/share}/claude/plugins/slop-guard}"
 export CLAUDE_PLUGIN_ROOT CLAUDE_PLUGIN_DATA
 
