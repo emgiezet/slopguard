@@ -1,0 +1,105 @@
+---
+# golangci-lint v2 → AP-id mapping (§6.2, §8.2).
+# Rule key: "gosec:G101" for gosec sub-rules, linter name for others.
+# Severity per spec §6.2.
+rules:
+  "gosec:G101":
+    ap_id: AP-GO-SEC-001
+    severity: blocker
+    category: security
+    cwe: CWE-321
+  "gosec:G201":
+    ap_id: AP-GO-SEC-002
+    severity: blocker
+    category: security
+    cwe: CWE-89
+  "gosec:G202":
+    ap_id: AP-GO-SEC-002
+    severity: blocker
+    category: security
+    cwe: CWE-89
+  "gosec:G204":
+    ap_id: AP-GO-SEC-003
+    severity: blocker
+    category: security
+    cwe: CWE-78
+  "gosec:G304":
+    ap_id: AP-GO-SEC-004
+    severity: blocker
+    category: security
+    cwe: CWE-22
+  "gosec:G305":
+    ap_id: AP-GO-SEC-004
+    severity: blocker
+    category: security
+    cwe: CWE-22
+  "gosec:G402":
+    ap_id: AP-GO-SEC-005
+    severity: blocker
+    category: security
+    cwe: CWE-326
+  "gosec:G404":
+    ap_id: AP-GO-SEC-006
+    severity: blocker
+    category: security
+    cwe: CWE-338
+  bodyclose:
+    ap_id: AP-GO-PERF-001
+    severity: error
+    category: performance
+    cwe: ""
+  sqlclosecheck:
+    ap_id: AP-GO-PERF-002
+    severity: error
+    category: performance
+    cwe: ""
+  rowserrcheck:
+    ap_id: AP-GO-PERF-002
+    severity: error
+    category: performance
+    cwe: ""
+  noctx:
+    ap_id: AP-GO-PERF-003
+    severity: error
+    category: performance
+    cwe: ""
+  prealloc:
+    ap_id: AP-GO-PERF-004
+    severity: warn
+    category: performance
+    cwe: ""
+  perfsprint:
+    ap_id: AP-GO-PERF-005
+    severity: warn
+    category: performance
+    cwe: ""
+  gocognit:
+    ap_id: AP-GO-MAINT-001
+    severity: warn
+    category: maintainability
+    cwe: ""
+  gocritic:
+    ap_id: AP-GO-MAINT-002
+    severity: warn
+    category: maintainability
+    cwe: ""
+  errorlint:
+    ap_id: AP-GO-MAINT-003
+    severity: warn
+    category: maintainability
+    cwe: ""
+  nilerr:
+    ap_id: AP-GO-MAINT-004
+    severity: error
+    category: maintainability
+    cwe: ""
+  revive:
+    ap_id: AP-GO-MAINT-005
+    severity: warn
+    category: maintainability
+    cwe: ""
+  staticcheck:
+    ap_id: AP-GO-MAINT-006
+    severity: error
+    category: maintainability
+    cwe: ""

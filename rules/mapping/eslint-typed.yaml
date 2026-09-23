@@ -1,0 +1,31 @@
+---
+# ESLint type-aware rules → AP-id mapping (§6.4, tier M).
+# These rules require SLOPGUARD_TYPED_LINT=1 and TypeScript type information.
+# Dispatcher tries this file first, then falls back to eslint.yaml for common rules.
+# Severity per spec §6.4.
+rules:
+  "@typescript-eslint/no-floating-promises":
+    ap_id: AP-TS-ASYNC-001
+    severity: error
+    category: performance
+    cwe: ""
+  "@typescript-eslint/no-misused-promises":
+    ap_id: AP-TS-ASYNC-002
+    severity: error
+    category: performance
+    cwe: ""
+  "@typescript-eslint/no-implied-eval":
+    ap_id: AP-TS-SEC-001
+    severity: blocker
+    category: security
+    cwe: CWE-95
+  "@typescript-eslint/only-throw-error":
+    ap_id: AP-TS-MAINT-002
+    severity: warn
+    category: maintainability
+    cwe: ""
+  "@typescript-eslint/switch-exhaustiveness-check":
+    ap_id: AP-TS-MAINT-003
+    severity: warn
+    category: maintainability
+    cwe: ""

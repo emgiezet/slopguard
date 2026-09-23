@@ -1,0 +1,167 @@
+---
+# rules/opengrep/jvm.yaml — Java and Kotlin (JVM) security antipattern rules.
+# License: MIT. Written from scratch; does not copy or paraphrase Semgrep Registry content.
+# Opengrep is not installed in the authoring environment; patterns are syntactic (no taint mode).
+# Tier 2 rule set. Individual AP-JVM-* IDs will be confirmed in Etap 5 catalog.
+rules:
+  - id: slopguard.jvm.jdbc-string-concat
+    languages: [java, kotlin]
+    message: >-
+      JDBC query constructed by string concatenation or format string. Concatenating
+      user input into SQL enables injection. Use PreparedStatement with parameter
+      placeholders (?) or a query builder such as jOOQ or Spring JdbcTemplate
+      with named parameters.
+    severity: ERROR
+    metadata:
+      ap_id: AP-JVM-SEC-001
+      category: security
+      cwe: CWE-89
+    pattern-either:
+      - pattern: $STMT.executeQuery($SQL + $VAR)
+      - pattern: $STMT.execute($SQL + $VAR)
+      - pattern: $STMT.executeUpdate($SQL + $VAR)
+      - pattern: $CONN.createStatement().executeQuery($SQL + $VAR)
+      - pattern: $CONN.prepareStatement($SQL + $VAR)
+      - pattern: String.format("...%s...", $VAR)
+
+  - id: slopguard.jvm.runtime-exec-concat
+    languages: [java, kotlin]
+    message: >-
+      Runtime.exec() called with a string that includes user-controlled input.
+      Shell metacharacters in the concatenated string can execute arbitrary
+      commands. Pass command and arguments as a String[] to avoid shell
+      interpretation, or use ProcessBuilder with a list.
+    severity: ERROR
+    metadata:
+      ap_id: AP-JVM-SEC-002
+      category: security
+      cwe: CWE-78
+    pattern-either:
+      - pattern: Runtime.getRuntime().exec($CMD + $VAR)
+      - pattern: Runtime.getRuntime().exec(new String[]{$CMD + $VAR})
+      - patterns:
+          - pattern: |
+              ProcessBuilder $PB = new ProcessBuilder($CMD + $VAR);
+      - pattern: |
+          new ProcessBuilder($CMD + $VAR)
+
+  - id: slopguard.jvm.object-deserialize
+    languages: [java, kotlin]
+    message: >-
+      ObjectInputStream.readObject() deserializes arbitrary Java objects from
+      the stream. If the stream comes from an untrusted source a crafted gadget
+      chain can achieve remote code execution. Replace with JSON, Protocol
+      Buffers, or a lookup-table over a safe object representation.
+    severity: ERROR
+    metadata:
+      ap_id: AP-JVM-SEC-003
+      category: security
+      cwe: CWE-502
+    pattern-either:
+      - pattern: |
+          new ObjectInputStream($INPUT).readObject()
+      - pattern: |
+          $OIS = new ObjectInputStream($INPUT);
+          ...
+          $OIS.readObject();
+      - pattern: $OIS.readObject()
+
+  - id: slopguard.jvm.insecure-random
+    languages: [java, kotlin]
+    message: >-
+      java.util.Random and Math.random() are not cryptographically secure. For
+      tokens, passwords, session IDs, or key material use
+      java.security.SecureRandom, which reads from the OS entropy source.
+    severity: ERROR
+    metadata:
+      ap_id: AP-JVM-SEC-004
+      category: security
+      cwe: CWE-338
+    pattern-either:
+      - pattern: new Random()
+      - pattern: new java.util.Random()
+      - pattern: Math.random()
+      - pattern: ThreadLocalRandom.current()
+
+  - id: slopguard.jvm.jackson-default-typing
+    languages: [java, kotlin]
+    message: >-
+      Jackson ObjectMapper with enableDefaultTyping() or
+      activateDefaultTyping() deserializes polymorphic type information from
+      JSON. An attacker can specify a gadget class to achieve RCE. Use
+      @JsonTypeInfo with a known safe subtypes allowlist instead.
+    severity: ERROR
+    metadata:
+      ap_id: AP-JVM-SEC-005
+      category: security
+      cwe: CWE-502
+    pattern-either:
+      - pattern: $MAPPER.enableDefaultTyping(...)
+      - pattern: $MAPPER.activateDefaultTyping(...)
+      - pattern: $MAPPER.enableDefaultTypingAsProperty(...)
+
+  - id: slopguard.jvm.trust-all-ssl
+    languages: [java, kotlin]
+    message: >-
+      TrustManager that accepts any certificate or HostnameVerifier that accepts
+      any hostname disables TLS verification, making HTTPS connections
+      equivalent to plaintext. Use the default TrustManager and verify
+      hostnames against the certificate's CN/SAN.
+    severity: ERROR
+    metadata:
+      ap_id: AP-JVM-SEC-006
+      category: security
+      cwe: CWE-295
+    pattern-either:
+      - pattern: |
+          new X509TrustManager() {
+            ...
+            public void checkServerTrusted(...) {}
+            ...
+          }
+      - pattern: |
+          new HostnameVerifier() {
+            ...
+            public boolean verify(...) { return true; }
+          }
+      - pattern: HttpsURLConnection.setDefaultSSLSocketFactory(...)
+      - pattern: HttpsURLConnection.setDefaultHostnameVerifier(...)
+
+  - id: slopguard.jvm.xml-external-entity
+    languages: [java, kotlin]
+    message: >-
+      XML parser created without disabling external entity resolution. Parsing
+      attacker-controlled XML with XXE enabled allows server-side request
+      forgery and local file disclosure. Set the FEATURE_SECURE_PROCESSING
+      feature and disable DOCTYPE declarations.
+    severity: ERROR
+    metadata:
+      ap_id: AP-JVM-SEC-007
+      category: security
+      cwe: CWE-611
+    pattern-either:
+      - pattern: DocumentBuilderFactory.newInstance()
+      - pattern: SAXParserFactory.newInstance()
+      - patterns:
+          - pattern: $DBF.newDocumentBuilder()
+          - pattern-not: $DBF.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
+
+  - id: slopguard.jvm.log-injection
+    languages: [java, kotlin]
+    message: >-
+      Logging user-supplied input without sanitization can corrupt log entries
+      or allow log injection. Encode newlines and control characters before
+      logging untrusted values, or log the value in a structured field.
+    severity: WARNING
+    metadata:
+      ap_id: AP-JVM-SEC-008
+      category: security
+      cwe: CWE-117
+    pattern-either:
+      - pattern: $LOG.info("..." + $REQ.getParameter($PARAM))
+      - pattern: $LOG.warn("..." + $REQ.getParameter($PARAM))
+      - pattern: $LOG.error("..." + $REQ.getParameter($PARAM))
+      - pattern: $LOG.debug("..." + $REQ.getParameter($PARAM))
+      - pattern: $LOG.info("..." + $PARAM)
+      - pattern: $LOG.warn("..." + $PARAM)
+      - pattern: $LOG.error("..." + $PARAM)

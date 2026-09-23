@@ -1,0 +1,107 @@
+---
+# rules/opengrep/php-laravel.yaml — Laravel-specific antipattern rules.
+# License: MIT. Written from scratch; does not copy or paraphrase Semgrep Registry content.
+# Opengrep is not installed in the authoring environment; patterns are syntactic (no taint mode).
+rules:
+  - id: slopguard.php.laravel.raw-sql-interpolation
+    languages: [php]
+    message: >-
+      Raw SQL method called with string concatenation. String concatenation passes
+      user-controlled values directly into the query, enabling SQL injection.
+      Use parameter bindings instead: whereRaw('col = ?', [$val]).
+    severity: ERROR
+    metadata:
+      ap_id: AP-PHP-SEC-001
+      category: security
+      cwe: CWE-89
+    pattern-either:
+      - pattern: DB::raw($A . $B)
+      - pattern: DB::select($A . $B, ...)
+      - pattern: DB::statement($A . $B)
+      - pattern: $Q->whereRaw($A . $B)
+      - pattern: $Q->whereRaw($A . $B, ...)
+      - pattern: $Q->selectRaw($A . $B)
+      - pattern: $Q->selectRaw($A . $B, ...)
+      - pattern: $Q->orderByRaw($A . $B)
+      - pattern: $Q->havingRaw($A . $B)
+      - pattern: $Q->havingRaw($A . $B, ...)
+
+  - id: slopguard.php.laravel.blade-unescaped-output
+    languages: [php]
+    message: >-
+      Unescaped Blade output {!! ... !!} bypasses XSS escaping. Use {{ $var }}
+      for user-supplied data; reserve {!! ... !!} only for verified-safe HTML
+      from an explicit allowlist.
+    severity: ERROR
+    metadata:
+      ap_id: AP-PHP-SEC-004
+      category: security
+      cwe: CWE-79
+    pattern-regex: '\{!!\s*\$'
+
+  - id: slopguard.php.laravel.mass-assignment-request-all
+    languages: [php]
+    message: >-
+      Mass assignment with $request->all() or $request->input() passes every
+      HTTP field to the model. Use $request->validated() and an explicit
+      $fillable list so only expected fields are written.
+    severity: WARNING
+    metadata:
+      ap_id: AP-PHP-SEC-005
+      category: security
+      cwe: CWE-915
+    pattern-either:
+      - pattern: $Model::create($Request->all())
+      - pattern: $Model::create($Request->input())
+      - pattern: $Instance->fill($Request->all())
+      - pattern: $Instance->fill($Request->input())
+      - pattern: $Instance->update($Request->all())
+      - pattern: $Instance->update($Request->input())
+
+  - id: slopguard.php.laravel.query-in-loop
+    languages: [php]
+    message: >-
+      Eloquent query inside a foreach loop causes N+1 database calls. Load
+      related data with eager-loading (with(), load()) before the loop, or
+      batch with whereIn() and an in-memory map.
+    severity: WARNING
+    metadata:
+      ap_id: AP-PHP-PERF-003
+      category: performance
+    pattern-either:
+      - pattern: |
+          foreach (...) {
+            ...
+            $Model->find($ID);
+            ...
+          }
+      - pattern: |
+          foreach (...) {
+            ...
+            $Model::find($ID);
+            ...
+          }
+      - pattern: |
+          foreach (...) {
+            ...
+            $Model->where(...)->first();
+            ...
+          }
+      - pattern: |
+          foreach (...) {
+            ...
+            $Model->where(...)->get();
+            ...
+          }
+
+  - id: slopguard.php.laravel.unbounded-all
+    languages: [php]
+    message: >-
+      Model::all() fetches every row from the table with no limit. On a
+      large table this loads the entire dataset into memory. Use paginate(),
+      chunkById(), or an explicit limit() instead.
+    severity: WARNING
+    metadata:
+      ap_id: AP-PHP-PERF-002
+      category: performance
+    pattern: $Model::all()

@@ -1,0 +1,53 @@
+---
+# rules/opengrep/react.yaml — TypeScript/React frontend security antipattern rules.
+# License: MIT. Written from scratch; does not copy or paraphrase Semgrep Registry content.
+# Opengrep is not installed in the authoring environment; patterns are syntactic (no taint mode).
+# Note: AP-TS-SEC-004 (href/src injection) requires dataflow for full coverage;
+# the syntactic rule catches direct attribute assignments from variables.
+rules:
+  - id: slopguard.react.token-in-localstorage
+    languages: [javascript, typescript]
+    message: >-
+      Storing authentication tokens in localStorage exposes them to XSS attacks.
+      Any script on the page can read localStorage. Use an HttpOnly; Secure;
+      SameSite=Strict cookie managed by the server instead.
+    severity: WARNING
+    metadata:
+      ap_id: AP-TS-SEC-003
+      category: security
+      cwe: CWE-922
+    pattern-either:
+      - pattern: localStorage.setItem("token", ...)
+      - pattern: localStorage.setItem('token', ...)
+      - pattern: localStorage.setItem("jwt", ...)
+      - pattern: localStorage.setItem('jwt', ...)
+      - pattern: localStorage.setItem("access_token", ...)
+      - pattern: localStorage.setItem('access_token', ...)
+      - pattern: localStorage.setItem("auth_token", ...)
+      - pattern: localStorage.setItem('auth_token', ...)
+      - pattern: localStorage.setItem("refresh_token", ...)
+      - pattern: localStorage.setItem('refresh_token', ...)
+      - pattern: localStorage.setItem("id_token", ...)
+      - pattern: localStorage.setItem('id_token', ...)
+
+  - id: slopguard.react.href-js-scheme
+    languages: [javascript, typescript]
+    message: >-
+      Assigning a user-controlled value to href or src without validating the URL
+      scheme allows javascript: URLs, enabling XSS. Validate the scheme against
+      an allowlist (https:, http:) before assigning, or use a safe URL builder.
+    severity: ERROR
+    metadata:
+      ap_id: AP-TS-SEC-004
+      category: security
+      cwe: CWE-79
+    pattern-either:
+      - pattern: $EL.href = $VAR
+      - pattern: $EL.src = $VAR
+      - pattern: window.location.href = $VAR
+      - pattern: <$TAG href={$VAR} .../>
+      - pattern: <$TAG href={$VAR}>...</$TAG>
+      - pattern: <$TAG src={$VAR} .../>
+      - pattern: <$TAG src={$VAR}>...</$TAG>
+      - pattern: React.createElement($TAG, {href: $VAR, ...})
+      - pattern: React.createElement($TAG, {src: $VAR, ...})

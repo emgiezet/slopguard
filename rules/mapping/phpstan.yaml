@@ -1,0 +1,75 @@
+---
+# PHPStan rule → AP-id mapping (§6.1, §8.1).
+# PHPStan 2.x emits an "identifier" field in JSON output.
+# Severity defaults per §4.8: security → error, maintainability → warn/error.
+rules:
+  argument.type:
+    ap_id: AP-PHP-MAINT-001
+    severity: error
+    category: maintainability
+    cwe: ""
+  return.type:
+    ap_id: AP-PHP-MAINT-002
+    severity: error
+    category: maintainability
+    cwe: ""
+  missingType.return:
+    ap_id: AP-PHP-MAINT-003
+    severity: warn
+    category: maintainability
+    cwe: ""
+  missingType.parameter:
+    ap_id: AP-PHP-MAINT-004
+    severity: warn
+    category: maintainability
+    cwe: ""
+  missingType.property:
+    ap_id: AP-PHP-MAINT-005
+    severity: warn
+    category: maintainability
+    cwe: ""
+  offsetAccess.notFound:
+    ap_id: AP-PHP-MAINT-006
+    severity: error
+    category: maintainability
+    cwe: ""
+  method.notFound:
+    ap_id: AP-PHP-MAINT-007
+    severity: error
+    category: maintainability
+    cwe: ""
+  variable.undefined:
+    ap_id: AP-PHP-MAINT-008
+    severity: error
+    category: maintainability
+    cwe: ""
+  deadCode.unreachable:
+    ap_id: AP-PHP-MAINT-009
+    severity: warn
+    category: maintainability
+    cwe: ""
+  function.notFound:
+    ap_id: AP-PHP-MAINT-010
+    severity: error
+    category: maintainability
+    cwe: ""
+  property.notFound:
+    ap_id: AP-PHP-MAINT-011
+    severity: error
+    category: maintainability
+    cwe: ""
+  identical.alwaysTrue:
+    ap_id: AP-PHP-MAINT-012
+    severity: warn
+    category: maintainability
+    cwe: ""
+  identical.alwaysFalse:
+    ap_id: AP-PHP-MAINT-013
+    severity: warn
+    category: maintainability
+    cwe: ""
+  phpstan-error:
+    ap_id: AP-PHP-MAINT-000
+    severity: warn
+    category: maintainability
+    cwe: ""

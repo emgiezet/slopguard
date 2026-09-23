@@ -321,7 +321,9 @@ else
         # tool itself and are skipped when it is absent.
         # Keys may be quoted (`"@typescript-eslint/no-implied-eval":`), so the
         # optional surrounding quotes are matched and dropped.
-        _codes=$(sed -n 's/^  "\{0,1\}\([A-Za-z0-9@][A-Za-z0-9._/@-]*\)"\{0,1\}:[[:space:]]*$/\1/p' "${_mf}" 2>/dev/null)
+        # Rule ids may be tool-qualified (`gosec:G101`) and are then quoted in
+        # YAML, so ':' is part of the id and the quotes are stripped here.
+        _codes=$(sed -n 's/^  "\{0,1\}\([A-Za-z0-9@][A-Za-z0-9._/@:-]*\)"\{0,1\}:[[:space:]]*$/\1/p' "${_mf}" 2>/dev/null)
         if [ -z "${_codes}" ]; then
             _fail "mapping schema" "${_mf}: no rule ids under a top-level 'rules:' map"
             continue
@@ -339,8 +341,12 @@ else
         # Select the rule-id authority by filename (spec §9: one file per tool).
         case "${_fname}" in
             ruff*|*python*)
-                if tool_present ruff; then
-                    _ruff_ids=$(ruff rule --all --output-format json 2>/dev/null \
+                # Diff against the PINNED binary only. A stale PATH copy answers
+                # with an older rule set and turns a correct mapping into a
+                # failure — resolve_tool returns a path only on a version match.
+                _ruff_bin="$(resolve_tool ruff 2>/dev/null)"
+                if [ -n "${_ruff_bin}" ]; then
+                    _ruff_ids=$("${_ruff_bin}" rule --all --output-format json 2>/dev/null \
                         | jq -r '.[].code' 2>/dev/null)
                     while IFS= read -r _code; do
                         [ -z "${_code}" ] && continue
@@ -349,23 +355,31 @@ else
                                 "(from ${_mf}) not found in ruff rule --all"
                         fi
                     done <<< "${_codes}"
+                else
+                    _skip "ruff rule catalogue" "pinned ruff not resolvable"
                 fi
                 ;;
             golangci*)
-                if tool_present golangci-lint; then
-                    _gl_linters=$(golangci-lint linters 2>/dev/null)
+                _gl_bin="$(resolve_tool golangci-lint 2>/dev/null)"
+                if [ -n "${_gl_bin}" ]; then
+                    _gl_linters=$("${_gl_bin}" linters 2>/dev/null)
                     while IFS= read -r _linter; do
                         [ -z "${_linter}" ] && continue
+                        # Tool-qualified ids (`gosec:G101`) name the linter before the colon.
+                        _linter="${_linter%%:*}"
                         if ! printf '%s\n' "${_gl_linters}" | grep -qF "${_linter}"; then
                             _fail "golangci-lint linter: ${_linter}" \
                                 "(from ${_mf}) not found in golangci-lint linters"
                         fi
                     done <<< "${_codes}"
+                else
+                    _skip "golangci-lint linter catalogue" "pinned golangci-lint not resolvable"
                 fi
                 ;;
             kube*)
-                if tool_present kube-linter; then
-                    _kl_checks=$(kube-linter checks list 2>/dev/null)
+                _kl_bin="$(resolve_tool kube-linter 2>/dev/null)"
+                if [ -n "${_kl_bin}" ]; then
+                    _kl_checks=$("${_kl_bin}" checks list 2>/dev/null)
                     while IFS= read -r _check; do
                         [ -z "${_check}" ] && continue
                         if ! printf '%s\n' "${_kl_checks}" | grep -qF "${_check}"; then

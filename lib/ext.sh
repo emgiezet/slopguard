@@ -497,17 +497,93 @@ ext_tools() {
     done
 }
 
+# _ext_validate_opengrep_yaml <file>
+# Validate a file as an Opengrep/Semgrep rule document.
+# Must have top-level 'rules:' key with at least one item that carries
+# id, languages, message, severity, and a pattern key.
+# Exits 0 on success; prints reason to stderr and exits 1 on failure.
+_ext_validate_opengrep_yaml() {
+    local file="$1"
+
+    # Must have at least one rule id entry (array-style).
+    grep -qE '^\s+-\s+id:' "$file" 2>/dev/null || {
+        printf 'opengrep-rules: no rule entries found (missing "- id:" items)\n' >&2
+        return 1
+    }
+
+    # Required fields: languages, message, severity.
+    grep -qE '^\s+languages:' "$file" 2>/dev/null || {
+        printf 'opengrep-rules: no "languages:" field found\n' >&2
+        return 1
+    }
+    grep -qE '^\s+message:' "$file" 2>/dev/null || {
+        printf 'opengrep-rules: no "message:" field found\n' >&2
+        return 1
+    }
+    grep -qE '^\s+severity:' "$file" 2>/dev/null || {
+        printf 'opengrep-rules: no "severity:" field found\n' >&2
+        return 1
+    }
+
+    # Must have at least one pattern key.
+    grep -qE '^\s+(pattern|pattern-either|pattern-regex|pattern-not-regex|patterns):' "$file" \
+        2>/dev/null || {
+        printf 'opengrep-rules: no pattern key found\n' >&2
+        return 1
+    }
+
+    return 0
+}
+
+# ext_opengrep_rules <project_root>
+# Discover and validate .slopguard/opengrep/ project-scoped Opengrep rules.
+# On success, prints the path to the rule directory (empty output means none found).
+# Invalid rule files are reported to stderr; the directory is rejected if any file fails.
+# Always exits 0 (fail-open: bad project rules are warned, not fatal for the invocation).
+ext_opengrep_rules() {
+    local project_root="$1"
+    local ext_d; ext_d="$(ext_dir "$project_root")"
+    local og_dir="${ext_d}/opengrep"
+    [ -d "$og_dir" ] || return 0
+
+    local f invalid=0 found=0
+    for f in "${og_dir}"/*.yaml "${og_dir}"/*.yml; do
+        [ -f "$f" ] || continue
+        found=$((found + 1))
+        if ! _ext_validate_opengrep_yaml "$f"; then
+            printf 'ext_opengrep_rules: rejected rule file: %s\n' "$f" >&2
+            invalid=$((invalid + 1))
+        fi
+    done
+
+    [ "$found" -gt 0 ] || return 0
+    if [ "$invalid" -gt 0 ]; then
+        printf 'ext_opengrep_rules: %d invalid file(s) in %s - directory skipped\n' \
+            "$invalid" "$og_dir" >&2
+        return 0
+    fi
+    printf '%s\n' "$og_dir"
+}
+
 # ext_validate <file>
 # Exit 0 when the file is structurally valid; print reason to stderr and exit 1
-# otherwise.  Works for both descriptor files and mapping override files.
+# otherwise.  Works for descriptor files, mapping override files, and opengrep
+# rule documents.
 ext_validate() {
     local file="$1"
     [ -f "$file" ] || {
         printf 'ext_validate: file not found: %s\n' "$file" >&2; return 1
     }
 
-    # Detect type: mapping files have a top-level "rules:" key.
+    # Detect type by structure.
     if grep -q '^rules:' "$file" 2>/dev/null; then
+        # Distinguish opengrep rule files from mapping files.
+        # Opengrep rule files use array items ("  - id:"); mapping files use
+        # YAML mapping keys ("  S608:", "  TaintedSql:", etc.).
+        if grep -qE '^\s+-\s+id:' "$file" 2>/dev/null; then
+            _ext_validate_opengrep_yaml "$file"
+            return $?
+        fi
         # Mapping validation: must have at least one rule entry.
         local rc; rc="$(awk '/^  [^ ]/{c++} END{print c+0}' "$file")"
         [ "${rc:-0}" -gt 0 ] || {

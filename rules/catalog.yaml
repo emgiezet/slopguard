@@ -1,0 +1,3146 @@
+---
+# rules/catalog.yaml — anti-pattern catalogue (source of truth for AP-* ids)
+# Schema: §4.9. Content written from scratch per §10 (no copy from Semgrep/SonarSource).
+# CWE ids referenced by number and link only, per CWE Terms of Use.
+# OWASP links for reference only; no fragments of OWASP text reproduced.
+# skill_line: the exact one-liner that goes into SKILL.md (≤100 chars recommended).
+
+# ──────────────────────────────────────────────────────────────────────
+# §8.1 PHP (Laravel / Symfony)
+# ──────────────────────────────────────────────────────────────────────
+
+- id: AP-PHP-SEC-001
+  title: SQL built by string interpolation or concatenation
+  language: [php]
+  frameworks: [laravel, symfony, plain]
+  category: security
+  severity: blocker
+  cwe: [CWE-89]
+  summary: Building SQL by embedding variables directly into the query string lets attackers manipulate query logic. Always use parameterized queries or the query builder's binding methods.
+  skill_line: No SQL string interpolation. Use `DB::select('… where id = ?', [$id])` or the query builder.
+  bad: |
+    $results = DB::select("SELECT * FROM users WHERE email = '$email'");
+  good: |
+    $results = DB::select('SELECT * FROM users WHERE email = ?', [$email]);
+  detect:
+    - { tool: psalm, rule: TaintedSql }
+    - { tool: opengrep, rule: slopguard.php.laravel.raw-sql-interpolation }
+  prevent_in_skill: true
+  references:
+    - https://cwe.mitre.org/data/definitions/89.html
+    - https://cheatsheetseries.owasp.org/cheatsheets/Query_Parameterization_Cheat_Sheet.html
+
+- id: AP-PHP-SEC-002
+  title: unserialize on externally controlled data
+  language: [php]
+  frameworks: [laravel, symfony, plain]
+  category: security
+  severity: blocker
+  cwe: [CWE-502]
+  summary: PHP object deserialization executes magic methods on the restored object graph. Attackers can craft payloads that exploit existing classes to run arbitrary code. Use JSON or restrict allowed classes.
+  skill_line: No `unserialize()` on external data. Use `json_decode` or `allowed_classes: false`.
+  bad: |
+    $obj = unserialize($request->input('payload'));
+  good: |
+    $data = json_decode($request->input('payload'), true);
+  detect:
+    - { tool: psalm, rule: TaintedUnserialize }
+  prevent_in_skill: true
+  references:
+    - https://cwe.mitre.org/data/definitions/502.html
+
+- id: AP-PHP-SEC-003
+  title: Shell command built from request input
+  language: [php]
+  frameworks: [laravel, symfony, plain]
+  category: security
+  severity: blocker
+  cwe: [CWE-78]
+  summary: Interpolating user input into shell commands lets attackers run arbitrary OS commands. Use Symfony Process with an argument array so the shell never interprets special characters.
+  skill_line: No `exec`/`shell_exec`/backticks with user input. Use Symfony Process with an argv array.
+  bad: |
+    exec("convert " . $request->input('file') . " output.png");
+  good: |
+    (new Process(['convert', $request->input('file'), 'output.png']))->mustRun();
+  detect:
+    - { tool: psalm, rule: TaintedShell }
+  prevent_in_skill: true
+  references:
+    - https://cwe.mitre.org/data/definitions/78.html
+
+- id: AP-PHP-SEC-004
+  title: Unescaped Blade output with {!! !!}
+  language: [php]
+  frameworks: [laravel]
+  category: security
+  severity: blocker
+  cwe: [CWE-79]
+  summary: The `{!! !!}` syntax skips HTML escaping. If the value originates from user input, this allows stored or reflected XSS. Use `{{ }}` for user-supplied content and a dedicated HTML sanitizer for rich text.
+  skill_line: Use `{{ $var }}` for user data; `{!! !!}` only for pre-sanitized rich text.
+  bad: |
+    <p>{!! $user->bio !!}</p>
+  good: |
+    <p>{{ $user->bio }}</p>
+  detect:
+    - { tool: opengrep, rule: slopguard.php.laravel.blade-unescaped-output }
+  prevent_in_skill: true
+  references:
+    - https://cwe.mitre.org/data/definitions/79.html
+
+- id: AP-PHP-SEC-005
+  title: Mass assignment from raw request data
+  language: [php]
+  frameworks: [laravel]
+  category: security
+  severity: error
+  cwe: [CWE-915]
+  summary: Passing `$request->all()` directly to `create()` or `fill()` lets clients write to any column including roles, admin flags, and foreign keys. Use `$request->validated()` with `$fillable` set.
+  skill_line: Never `create($request->all())`; use `$request->validated()` and declare `$fillable`.
+  bad: |
+    $user = User::create($request->all());
+  good: |
+    $user = User::create($request->validated());
+  detect:
+    - { tool: opengrep, rule: slopguard.php.laravel.mass-assignment-request-all }
+  prevent_in_skill: true
+  references:
+    - https://cwe.mitre.org/data/definitions/915.html
+
+- id: AP-PHP-SEC-006
+  title: Weak password hashing or insecure random for tokens
+  language: [php]
+  frameworks: [laravel, symfony, plain]
+  category: security
+  severity: blocker
+  cwe: [CWE-327, CWE-330]
+  summary: MD5 and SHA-1 are fast hashes unsuitable for passwords. `rand()`, `mt_rand()`, and `uniqid()` are not cryptographically secure and must not generate tokens or secrets. Use `Hash::make` / `password_hash` for passwords and `random_bytes` / `Str::random` for tokens.
+  skill_line: Use `Hash::make`/`password_hash` for passwords; `random_bytes`/`Str::random` for tokens.
+  bad: |
+    $token = md5($user->email . time());
+    $reset = uniqid('reset_', true);
+  good: |
+    $token = Str::random(64);
+    $reset = bin2hex(random_bytes(32));
+  detect:
+    - { tool: opengrep, rule: slopguard.php.weak-password-hash }
+    - { tool: opengrep, rule: slopguard.php.insecure-random-token }
+  prevent_in_skill: true
+  references:
+    - https://cwe.mitre.org/data/definitions/327.html
+    - https://cwe.mitre.org/data/definitions/330.html
+
+- id: AP-PHP-SEC-007
+  title: Loose comparison of secrets or hashes
+  language: [php]
+  frameworks: [laravel, symfony, plain]
+  category: security
+  severity: error
+  cwe: [CWE-208]
+  summary: PHP's `==` operator does type coercion and is vulnerable to timing side-channels that allow hash comparison attacks. Always use `hash_equals()` when comparing secrets, tokens, or digests.
+  skill_line: Compare secrets and hashes with `hash_equals()`, never `==` or `===`.
+  bad: |
+    if ($token == $expected) { /* proceed */ }
+  good: |
+    if (hash_equals($expected, $token)) { /* proceed */ }
+  detect: []
+  prevent_in_skill: true
+  references:
+    - https://cwe.mitre.org/data/definitions/208.html
+
+- id: AP-PHP-SEC-008
+  title: File path derived from request input
+  language: [php]
+  frameworks: [laravel, symfony, plain]
+  category: security
+  severity: blocker
+  cwe: [CWE-22]
+  summary: Using a request parameter directly as a file path lets attackers traverse directories and read sensitive files. Use a server-side allowlist or map identifiers to physical paths.
+  skill_line: Never build file paths from request input; map an identifier to a server-side path.
+  bad: |
+    return Storage::get($request->input('path'));
+  good: |
+    $allowed = ['report' => 'reports/monthly.pdf'];
+    return Storage::get($allowed[$request->input('type')] ?? abort(400));
+  detect:
+    - { tool: psalm, rule: TaintedFile }
+  prevent_in_skill: false
+  references:
+    - https://cwe.mitre.org/data/definitions/22.html
+
+- id: AP-PHP-SEC-009
+  title: TLS verification disabled in HTTP client
+  language: [php]
+  frameworks: [laravel, symfony, plain]
+  category: security
+  severity: blocker
+  cwe: [CWE-295]
+  summary: Setting `verify => false` or `CURLOPT_SSL_VERIFYPEER => false` disables certificate validation and exposes the connection to man-in-the-middle attacks. Supply a valid CA bundle instead.
+  skill_line: Never disable TLS verification; supply a CA bundle if needed.
+  bad: |
+    Http::withOptions(['verify' => false])->get($url);
+  good: |
+    Http::withOptions(['verify' => '/etc/ssl/certs/ca-certificates.crt'])->get($url);
+  detect: []
+  prevent_in_skill: false
+  references:
+    - https://cwe.mitre.org/data/definitions/295.html
+
+- id: AP-PHP-PERF-001
+  title: N+1 — lazy-loading relations in loops or views
+  language: [php]
+  frameworks: [laravel]
+  category: performance
+  severity: error
+  cwe: []
+  summary: Accessing a relation property inside a loop or Blade view triggers a separate database query per iteration. Eager-load relations with `->with()` or call `Model::shouldBeStrict()` in development to surface violations immediately.
+  skill_line: Eager-load relations with `->with()`; keep `Model::shouldBeStrict()` enabled in dev.
+  bad: |
+    foreach (Order::all() as $order) {
+        echo $order->customer->name; // query per iteration
+    }
+  good: |
+    foreach (Order::with('customer')->get() as $order) {
+        echo $order->customer->name;
+    }
+  detect: []
+  prevent_in_skill: true
+  references: []
+
+- id: AP-PHP-PERF-002
+  title: Model::all() or unbounded get() on large tables
+  language: [php]
+  frameworks: [laravel]
+  category: performance
+  severity: warn
+  cwe: [CWE-400]
+  summary: Loading every row of a growing table into memory causes unbounded memory use and slow responses. Use pagination, `chunkById`, `lazyById`, or `cursor` for large result sets.
+  skill_line: Never `Model::all()` on large tables; use `paginate()`, `chunkById()`, or `cursor()`.
+  bad: |
+    $products = Product::all(); // loads millions of rows
+  good: |
+    Product::chunkById(500, function ($chunk) { /* process */ });
+  detect:
+    - { tool: opengrep, rule: slopguard.php.laravel.unbounded-all }
+  prevent_in_skill: true
+  references:
+    - https://cwe.mitre.org/data/definitions/400.html
+
+- id: AP-PHP-PERF-003
+  title: Database query inside a loop
+  language: [php]
+  frameworks: [laravel]
+  category: performance
+  severity: error
+  cwe: []
+  summary: Issuing a query inside a `foreach` multiplies database round-trips by the collection size. Collect all needed IDs first, then fetch with a single `whereIn` query.
+  skill_line: Replace queries-in-loop with `whereIn` + in-memory lookup by key.
+  bad: |
+    foreach ($ids as $id) {
+        $item = Item::find($id);
+    }
+  good: |
+    $items = Item::whereIn('id', $ids)->get()->keyBy('id');
+  detect:
+    - { tool: opengrep, rule: slopguard.php.laravel.query-in-loop }
+  prevent_in_skill: true
+  references: []
+
+- id: AP-PHP-PERF-004
+  title: get()->count() or get()->first() instead of SQL aggregate
+  language: [php]
+  frameworks: [laravel]
+  category: performance
+  severity: warn
+  cwe: []
+  summary: Calling `->get()` hydrates the full result set before counting or taking the first item, transferring far more data than needed. Use `->count()` or `->first()` directly to let the database do the work.
+  skill_line: Use `->count()` and `->first()` at the query level, not after `->get()`.
+  bad: |
+    $count = Order::where('status', 'pending')->get()->count();
+  good: |
+    $count = Order::where('status', 'pending')->count();
+  detect: []
+  prevent_in_skill: false
+  references: []
+
+- id: AP-PHP-PERF-005
+  title: Heavy synchronous work inside a web request
+  language: [php]
+  frameworks: [laravel, symfony]
+  category: performance
+  severity: warn
+  cwe: []
+  summary: Sending emails, calling external APIs, or processing files synchronously blocks the HTTP worker until the operation completes. Dispatch these to a background queue so the response is returned immediately.
+  skill_line: Dispatch slow operations (emails, external APIs, file processing) to a queue job.
+  bad: |
+    Mail::to($user)->send(new OrderConfirmation($order)); // blocks response
+  good: |
+    Mail::to($user)->queue(new OrderConfirmation($order));
+  detect: []
+  prevent_in_skill: true
+  references: []
+
+- id: AP-PHP-MAINT-001
+  title: Validation and business logic inside a controller
+  language: [php]
+  frameworks: [laravel, symfony]
+  category: maintainability
+  severity: warn
+  cwe: []
+  summary: Controllers should orchestrate; they must not contain validation rules or business logic. Extract validation to FormRequest classes and domain logic to service or action classes.
+  skill_line: Keep controllers thin; move validation to FormRequest and logic to service/action classes.
+  bad: |
+    public function store(Request $request) {
+        $request->validate(['email' => 'required|email']);
+        if (User::whereEmail($request->email)->exists()) abort(409);
+        // ... business logic
+    }
+  good: |
+    public function store(RegisterUserRequest $request, RegisterUser $action) {
+        return $action->execute($request->validated());
+    }
+  detect: []
+  prevent_in_skill: true
+  references: []
+
+- id: AP-PHP-MAINT-002
+  title: env() called outside config files
+  language: [php]
+  frameworks: [laravel]
+  category: maintainability
+  severity: error
+  cwe: []
+  summary: Calling `env()` directly in application code means the value is not available after `php artisan config:cache` is run. Always access environment values through `config()` and define them in a config file.
+  skill_line: Never call `env()` outside `config/`; use `config('app.key')` everywhere else.
+  bad: |
+    $key = env('STRIPE_SECRET');
+  good: |
+    $key = config('services.stripe.secret');
+  detect: []
+  prevent_in_skill: true
+  references: []
+
+- id: AP-PHP-MAINT-003
+  title: Missing strict_types or untyped parameters in new code
+  language: [php]
+  frameworks: [laravel, symfony, plain]
+  category: maintainability
+  severity: warn
+  cwe: []
+  summary: Without `declare(strict_types=1)` PHP silently coerces types and masks bugs. All new files should declare strict types; all new functions and methods should have typed parameters and return types.
+  skill_line: Add `declare(strict_types=1)` to every new file; type all parameters and return values.
+  bad: |
+    function process($data) { return $data['total'] * 1.2; }
+  good: |
+    declare(strict_types=1);
+    function process(array $data): float { return $data['total'] * 1.2; }
+  detect:
+    - { tool: phpstan, rule: missingType.parameter }
+  prevent_in_skill: true
+  references: []
+
+- id: AP-PHP-MAINT-004
+  title: Empty catch block or swallowing Throwable without handling
+  language: [php]
+  frameworks: [laravel, symfony, plain]
+  category: maintainability
+  severity: error
+  cwe: [CWE-390]
+  summary: A catch block that does nothing silently discards the error. Catch the narrowest exception type, log it with context, and either recover or rethrow so the caller knows something went wrong.
+  skill_line: Never catch silently; log with context and rethrow or handle specifically.
+  bad: |
+    try { $this->send($payload); } catch (\Throwable $e) { }
+  good: |
+    try {
+        $this->send($payload);
+    } catch (ConnectionException $e) {
+        Log::error('Send failed', ['error' => $e->getMessage()]);
+        throw $e;
+    }
+  detect: []
+  prevent_in_skill: true
+  references:
+    - https://cwe.mitre.org/data/definitions/390.html
+
+# ──────────────────────────────────────────────────────────────────────
+# §8.2 Go
+# ──────────────────────────────────────────────────────────────────────
+
+- id: AP-GO-SEC-001
+  title: SQL built by string formatting or concatenation
+  language: [go]
+  frameworks: [plain, gorm, sqlx]
+  category: security
+  severity: blocker
+  cwe: [CWE-89]
+  summary: Using `fmt.Sprintf` or `+` to assemble SQL statements allows injection of arbitrary SQL through user-controlled values. Use placeholder parameters (`$1`, `?`) consistently.
+  skill_line: Build SQL with `$1`/`?` placeholders; never use `fmt.Sprintf` or `+` to compose queries.
+  bad: |
+    rows, _ := db.Query("SELECT * FROM users WHERE email = '" + email + "'")
+  good: |
+    rows, err := db.QueryContext(ctx, "SELECT * FROM users WHERE email = $1", email)
+  detect:
+    - { tool: golangci-lint, rule: gosec:G201 }
+    - { tool: golangci-lint, rule: gosec:G202 }
+  prevent_in_skill: true
+  references:
+    - https://cwe.mitre.org/data/definitions/89.html
+
+- id: AP-GO-SEC-002
+  title: Shell command with shell=true or user-supplied string
+  language: [go]
+  frameworks: [plain]
+  category: security
+  severity: blocker
+  cwe: [CWE-78]
+  summary: Passing a user-controlled string to `exec.Command("sh", "-c", input)` allows shell metacharacter injection. Pass each argument as a separate string so the OS invokes the binary directly without a shell.
+  skill_line: Use `exec.Command("prog", arg1, arg2)` with separate args; never `sh -c` with user input.
+  bad: |
+    cmd := exec.Command("sh", "-c", "convert "+userFile+" output.png")
+  good: |
+    cmd := exec.Command("convert", userFile, "output.png")
+  detect:
+    - { tool: golangci-lint, rule: gosec:G204 }
+  prevent_in_skill: true
+  references:
+    - https://cwe.mitre.org/data/definitions/78.html
+
+- id: AP-GO-SEC-003
+  title: HTTP server without timeouts
+  language: [go]
+  frameworks: [plain, gin, echo]
+  category: security
+  severity: error
+  cwe: [CWE-400]
+  summary: An HTTP server without explicit timeouts can be held open indefinitely by slow clients, exhausting goroutines and file descriptors. Set `ReadHeaderTimeout`, `ReadTimeout`, `WriteTimeout`, and `IdleTimeout` on every server.
+  skill_line: Set `ReadHeaderTimeout`, `ReadTimeout`, `WriteTimeout`, `IdleTimeout` on `http.Server`.
+  bad: |
+    http.ListenAndServe(":8080", mux)
+  good: |
+    srv := &http.Server{Addr: ":8080", Handler: mux,
+        ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second,
+        WriteTimeout: 30 * time.Second, IdleTimeout: 120 * time.Second}
+    srv.ListenAndServe()
+  detect: []
+  prevent_in_skill: true
+  references:
+    - https://cwe.mitre.org/data/definitions/400.html
+
+- id: AP-GO-SEC-004
+  title: math/rand used for tokens or cryptographic material
+  language: [go]
+  frameworks: [plain]
+  category: security
+  severity: blocker
+  cwe: [CWE-338]
+  summary: The `math/rand` package is a pseudo-random number generator seeded deterministically; its output can be predicted. Use `crypto/rand` when generating tokens, nonces, or any security-sensitive values.
+  skill_line: Use `crypto/rand` for tokens and secrets; `math/rand` is for simulations only.
+  bad: |
+    token := fmt.Sprintf("%d", rand.Int63())
+  good: |
+    b := make([]byte, 32)
+    if _, err := rand.Read(b); err != nil { return err }
+    token := hex.EncodeToString(b) // crypto/rand.Read
+  detect:
+    - { tool: golangci-lint, rule: gosec:G404 }
+  prevent_in_skill: true
+  references:
+    - https://cwe.mitre.org/data/definitions/338.html
+
+- id: AP-GO-SEC-005
+  title: TLS verification disabled with InsecureSkipVerify
+  language: [go]
+  frameworks: [plain]
+  category: security
+  severity: blocker
+  cwe: [CWE-295]
+  summary: Setting `InsecureSkipVerify: true` means the server certificate is never validated. An attacker in a privileged network position can intercept all traffic. Provide a proper `RootCAs` pool instead.
+  skill_line: Never set `InsecureSkipVerify: true`; configure a valid `RootCAs` pool.
+  bad: |
+    tr := &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}
+  good: |
+    pool, _ := x509.SystemCertPool()
+    tr := &http.Transport{TLSClientConfig: &tls.Config{RootCAs: pool}}
+  detect:
+    - { tool: golangci-lint, rule: gosec:G402 }
+  prevent_in_skill: true
+  references:
+    - https://cwe.mitre.org/data/definitions/295.html
+
+- id: AP-GO-SEC-006
+  title: File path from user input without validation
+  language: [go]
+  frameworks: [plain]
+  category: security
+  severity: blocker
+  cwe: [CWE-22]
+  summary: Opening a file at a path derived from user input without cleaning and prefix-checking it allows directory traversal. Use `filepath.Clean` followed by a `strings.HasPrefix` check against the allowed base directory; in Go 1.24+ prefer `os.Root`.
+  skill_line: Clean paths with `filepath.Clean` and verify the prefix matches your base dir; use `os.Root` (Go 1.24+).
+  bad: |
+    data, _ := os.ReadFile("/uploads/" + req.FormValue("file"))
+  good: |
+    clean := filepath.Clean(filepath.Join("/uploads", req.FormValue("file")))
+    if !strings.HasPrefix(clean, "/uploads/") { http.Error(w, "forbidden", 403); return }
+    data, err := os.ReadFile(clean)
+  detect:
+    - { tool: golangci-lint, rule: gosec:G304 }
+    - { tool: golangci-lint, rule: gosec:G305 }
+  prevent_in_skill: false
+  references:
+    - https://cwe.mitre.org/data/definitions/22.html
+
+- id: AP-GO-SEC-007
+  title: Hard-coded secrets in source code
+  language: [go]
+  frameworks: [plain]
+  category: security
+  severity: blocker
+  cwe: [CWE-798]
+  summary: Embedding credentials, API keys, or tokens directly in source code exposes them to anyone with repository access and leaks them into version history. Load secrets from environment variables or a secret manager at runtime.
+  skill_line: Load secrets from environment variables or a secret manager; never hard-code them.
+  bad: |
+    const apiKey = "sk-live-abc123xyz789"
+  good: |
+    apiKey := os.Getenv("API_KEY")
+    if apiKey == "" { log.Fatal("API_KEY not set") }
+  detect:
+    - { tool: golangci-lint, rule: gosec:G101 }
+    - { tool: betterleaks, rule: generic-api-key }
+  prevent_in_skill: false
+  references:
+    - https://cwe.mitre.org/data/definitions/798.html
+
+- id: AP-GO-PERF-001
+  title: HTTP client without timeout or context
+  language: [go]
+  frameworks: [plain]
+  category: performance
+  severity: error
+  cwe: [CWE-400]
+  summary: Using `http.Get` or a bare `&http.Client{}` with no timeout means a slow or unresponsive server blocks the goroutine indefinitely. Always use `http.NewRequestWithContext` and a client with `Timeout` set.
+  skill_line: Set `Client.Timeout` and use `NewRequestWithContext`; never use `http.Get` without a timeout.
+  bad: |
+    resp, err := http.Get("https://api.example.com/data")
+  good: |
+    ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+    defer cancel()
+    req, _ := http.NewRequestWithContext(ctx, "GET", "https://api.example.com/data", nil)
+    resp, err := client.Do(req)
+  detect:
+    - { tool: golangci-lint, rule: noctx }
+    - { tool: opengrep, rule: slopguard.go.http-client-without-timeout }
+  prevent_in_skill: true
+  references:
+    - https://cwe.mitre.org/data/definitions/400.html
+
+- id: AP-GO-PERF-002
+  title: Unclosed response body or SQL rows, missing rows.Err() check
+  language: [go]
+  frameworks: [plain]
+  category: performance
+  severity: error
+  cwe: [CWE-404]
+  summary: Failing to close an HTTP response body or database rows leaks connections and file descriptors. Always defer `Close()` immediately after confirming no error, and check `rows.Err()` after the iteration loop.
+  skill_line: Defer `resp.Body.Close()` and `rows.Close()` immediately; always check `rows.Err()`.
+  bad: |
+    resp, err := client.Do(req)
+    // resp.Body never closed — connection leak
+  good: |
+    resp, err := client.Do(req)
+    if err != nil { return err }
+    defer resp.Body.Close()
+    rows, err := db.QueryContext(ctx, "SELECT id FROM items")
+    if err != nil { return err }
+    defer rows.Close()
+    for rows.Next() { /* … */ }
+    return rows.Err()
+  detect:
+    - { tool: golangci-lint, rule: bodyclose }
+    - { tool: golangci-lint, rule: sqlclosecheck }
+    - { tool: golangci-lint, rule: rowserrcheck }
+  prevent_in_skill: true
+  references:
+    - https://cwe.mitre.org/data/definitions/404.html
+
+- id: AP-GO-PERF-003
+  title: Unbounded goroutine-per-item spawning or goroutine leak
+  language: [go]
+  frameworks: [plain]
+  category: performance
+  severity: error
+  cwe: [CWE-400]
+  summary: Spawning one goroutine per item in an unbounded loop can exhaust memory and scheduler capacity when the input is large or arrives faster than the goroutines complete. Use `errgroup` with `SetLimit` or a worker-pool pattern with context cancellation.
+  skill_line: Limit goroutine fan-out with `errgroup.SetLimit`; always propagate context for cancellation.
+  bad: |
+    for _, item := range items {
+        go process(item) // no limit, no error handling
+    }
+  good: |
+    g, ctx := errgroup.WithContext(ctx)
+    g.SetLimit(runtime.NumCPU())
+    for _, item := range items {
+        item := item
+        g.Go(func() error { return process(ctx, item) })
+    }
+    return g.Wait()
+  detect:
+    - { tool: opengrep, rule: slopguard.go.goroutine-per-item-unbounded }
+  prevent_in_skill: true
+  references:
+    - https://cwe.mitre.org/data/definitions/400.html
+
+- id: AP-GO-PERF-004
+  title: Unnecessary allocations — append in loop without prealloc or Sprintf for simple concat
+  language: [go]
+  frameworks: [plain]
+  category: performance
+  severity: warn
+  cwe: []
+  summary: Appending to a nil slice inside a loop when the final length is known causes repeated slice resizing. Using `fmt.Sprintf` to concatenate two strings is slower than `+` or `strings.Builder`. Pre-allocate slices and use cheaper string operations.
+  skill_line: Pre-allocate slices of known size; use `+` or `strings.Builder` instead of `fmt.Sprintf`.
+  bad: |
+    var ids []int64
+    for _, u := range users { ids = append(ids, u.ID) }
+    label := fmt.Sprintf("%s_%d", prefix, id)
+  good: |
+    ids := make([]int64, 0, len(users))
+    for _, u := range users { ids = append(ids, u.ID) }
+    label := prefix + "_" + strconv.FormatInt(id, 10)
+  detect:
+    - { tool: golangci-lint, rule: prealloc }
+    - { tool: golangci-lint, rule: perfsprint }
+  prevent_in_skill: false
+  references: []
+
+- id: AP-GO-MAINT-001
+  title: Ignored errors or incorrect error wrapping
+  language: [go]
+  frameworks: [plain]
+  category: maintainability
+  severity: error
+  cwe: [CWE-391]
+  summary: Assigning an error to `_` or comparing wrapped errors with `==` instead of `errors.Is`/`errors.As` leads to silent failures and incorrect error handling. Always handle errors and wrap with `%w` to preserve the chain.
+  skill_line: Handle every error; wrap with `fmt.Errorf("…: %w", err)`; compare with `errors.Is`/`errors.As`.
+  bad: |
+    val, _ := strconv.Atoi(s)
+    if err == sql.ErrNoRows { /* won't match wrapped errors */ }
+  good: |
+    val, err := strconv.Atoi(s)
+    if err != nil { return fmt.Errorf("parse id: %w", err) }
+    if errors.Is(err, sql.ErrNoRows) { /* correct */ }
+  detect:
+    - { tool: golangci-lint, rule: errorlint }
+  prevent_in_skill: true
+  references:
+    - https://cwe.mitre.org/data/definitions/391.html
+
+- id: AP-GO-MAINT-002
+  title: panic / log.Fatal / os.Exit in library code
+  language: [go]
+  frameworks: [plain]
+  category: maintainability
+  severity: error
+  cwe: []
+  summary: Library code that calls `panic`, `log.Fatal`, or `os.Exit` takes control away from the caller and makes testing impossible. Return errors instead and let the application's `main` function decide how to handle them.
+  skill_line: Return errors from libraries; never call `panic`/`log.Fatal`/`os.Exit` outside `main`.
+  bad: |
+    func LoadConfig(path string) Config {
+        f, err := os.Open(path)
+        if err != nil { log.Fatal(err) }
+    }
+  good: |
+    func LoadConfig(path string) (Config, error) {
+        f, err := os.Open(path)
+        if err != nil { return Config{}, fmt.Errorf("open config: %w", err) }
+    }
+  detect:
+    - { tool: golangci-lint, rule: revive }
+  prevent_in_skill: true
+  references: []
+
+- id: AP-GO-MAINT-003
+  title: context.Background() or TODO() used in request path
+  language: [go]
+  frameworks: [plain]
+  category: maintainability
+  severity: warn
+  cwe: []
+  summary: Using `context.Background()` or `context.TODO()` inside a function that receives a request-scoped context breaks cancellation and deadline propagation. Thread the incoming `ctx` through all downstream calls.
+  skill_line: Propagate the request `ctx` through all calls; never use `context.Background()` in handlers.
+  bad: |
+    func (s *Server) Handle(w http.ResponseWriter, r *http.Request) {
+        result, _ := s.db.QueryContext(context.Background(), "SELECT …")
+    }
+  good: |
+    func (s *Server) Handle(w http.ResponseWriter, r *http.Request) {
+        result, err := s.db.QueryContext(r.Context(), "SELECT …")
+    }
+  detect: []
+  prevent_in_skill: true
+  references: []
+
+- id: AP-GO-MAINT-004
+  title: Unchecked type assertion x.(T)
+  language: [go]
+  frameworks: [plain]
+  category: maintainability
+  severity: error
+  cwe: []
+  summary: A bare type assertion `x.(T)` panics at runtime if the dynamic type is not `T`. Always use the two-value form `v, ok := x.(T)` and check `ok` before using `v`.
+  skill_line: Use `v, ok := x.(T)` and check `ok`; bare `x.(T)` panics on wrong type.
+  bad: |
+    val := data["key"].(string) // panics if not a string
+  good: |
+    val, ok := data["key"].(string)
+    if !ok { return fmt.Errorf("key is not a string") }
+  detect: []
+  prevent_in_skill: false
+  references: []
+
+# ──────────────────────────────────────────────────────────────────────
+# §8.3 Python
+# ──────────────────────────────────────────────────────────────────────
+
+- id: AP-PY-SEC-001
+  title: SQL built with f-strings, % formatting, or .format()
+  language: [python]
+  frameworks: [django, sqlalchemy, plain]
+  category: security
+  severity: blocker
+  cwe: [CWE-89]
+  summary: Embedding Python variables directly into SQL strings opens the query to injection attacks. Always pass parameters as a second argument to the execute method or use the ORM's query builder.
+  skill_line: Pass params as second arg to `execute()`; never build SQL with f-strings or `%`.
+  bad: |
+    cursor.execute(f"SELECT * FROM users WHERE email = '{email}'")
+  good: |
+    cursor.execute("SELECT * FROM users WHERE email = %s", (email,))
+  detect:
+    - { tool: ruff, rule: S608 }
+    - { tool: opengrep, rule: slopguard.py.django-raw-sql-format }
+    - { tool: opengrep, rule: slopguard.py.sqlalchemy-text-fstring }
+  prevent_in_skill: true
+  references:
+    - https://cwe.mitre.org/data/definitions/89.html
+
+- id: AP-PY-SEC-002
+  title: subprocess with shell=True or os.system with user input
+  language: [python]
+  frameworks: [plain]
+  category: security
+  severity: blocker
+  cwe: [CWE-78]
+  summary: Passing `shell=True` lets the shell interpret metacharacters in the command string, enabling injection. Use a list of arguments with `shell=False` (the default) so the OS invokes the program directly.
+  skill_line: Use `subprocess.run(['prog', arg1], shell=False)`; never `shell=True` with user input.
+  bad: |
+    subprocess.run(f"convert {filename} output.png", shell=True)
+  good: |
+    subprocess.run(['convert', filename, 'output.png'], check=True)
+  detect:
+    - { tool: ruff, rule: S602 }
+    - { tool: ruff, rule: S605 }
+  prevent_in_skill: true
+  references:
+    - https://cwe.mitre.org/data/definitions/78.html
+
+- id: AP-PY-SEC-003
+  title: pickle.loads or yaml.load on external data
+  language: [python]
+  frameworks: [plain]
+  category: security
+  severity: blocker
+  cwe: [CWE-502]
+  summary: Both `pickle.loads` and `yaml.load` (with the default Loader) execute arbitrary Python code when deserializing attacker-controlled data. Use `json` for data exchange or `yaml.safe_load` for YAML.
+  skill_line: Use `json` for data exchange; replace `yaml.load` with `yaml.safe_load`.
+  bad: |
+    obj = pickle.loads(request.data)
+    cfg = yaml.load(stream)            # uses FullLoader by default
+  good: |
+    data = json.loads(request.data)
+    cfg = yaml.safe_load(stream)
+  detect:
+    - { tool: ruff, rule: S301 }
+    - { tool: ruff, rule: S506 }
+  prevent_in_skill: true
+  references:
+    - https://cwe.mitre.org/data/definitions/502.html
+
+- id: AP-PY-SEC-004
+  title: requests or httpx call without timeout
+  language: [python]
+  frameworks: [plain]
+  category: security
+  severity: error
+  cwe: [CWE-400]
+  summary: An HTTP call without a timeout can block the thread indefinitely when the server is slow or unresponsive. Always supply an explicit `timeout=` parameter.
+  skill_line: Always pass an explicit `timeout=` to `requests.get` and `httpx.get`.
+  bad: |
+    resp = requests.get("https://api.example.com/data")
+  good: |
+    resp = requests.get("https://api.example.com/data", timeout=10)
+  detect:
+    - { tool: ruff, rule: S113 }
+  prevent_in_skill: true
+  references:
+    - https://cwe.mitre.org/data/definitions/400.html
+
+- id: AP-PY-SEC-005
+  title: TLS verification disabled with verify=False
+  language: [python]
+  frameworks: [plain]
+  category: security
+  severity: blocker
+  cwe: [CWE-295]
+  summary: Setting `verify=False` disables certificate validation, exposing connections to man-in-the-middle attacks. Always leave verification enabled; supply a CA bundle path when dealing with internal PKI.
+  skill_line: Never use `verify=False`; supply a CA bundle path for internal PKI.
+  bad: |
+    resp = requests.get(url, verify=False)
+  good: |
+    resp = requests.get(url, verify="/etc/ssl/certs/ca-certificates.crt")
+  detect:
+    - { tool: ruff, rule: S501 }
+  prevent_in_skill: true
+  references:
+    - https://cwe.mitre.org/data/definitions/295.html
+
+- id: AP-PY-SEC-006
+  title: random module used for secrets or tokens
+  language: [python]
+  frameworks: [plain]
+  category: security
+  severity: error
+  cwe: [CWE-330]
+  summary: The `random` module is designed for simulations and is predictable by design. For anything security-sensitive — tokens, nonces, passwords — use the `secrets` module which draws from the OS CSPRNG.
+  skill_line: Use `secrets.token_hex()` or `secrets.token_urlsafe()` for all security tokens.
+  bad: |
+    token = hex(random.getrandbits(128))
+  good: |
+    import secrets
+    token = secrets.token_hex(32)
+  detect:
+    - { tool: ruff, rule: S311 }
+  prevent_in_skill: true
+  references:
+    - https://cwe.mitre.org/data/definitions/330.html
+
+- id: AP-PY-SEC-007
+  title: eval or exec on externally controlled data
+  language: [python]
+  frameworks: [plain]
+  category: security
+  severity: blocker
+  cwe: [CWE-95]
+  summary: Calling `eval()` or `exec()` with user-supplied strings executes arbitrary Python code in the current process. Replace dynamic evaluation with a static dispatch map or a proper parser.
+  skill_line: Replace `eval`/`exec` with a lookup dict or a safe parser; never eval user input.
+  bad: |
+    result = eval(request.form['expression'])
+  good: |
+    ops = {'+': operator.add, '-': operator.sub}
+    result = ops[request.form['op']](a, b)
+  detect:
+    - { tool: ruff, rule: S307 }
+    - { tool: ruff, rule: S102 }
+  prevent_in_skill: true
+  references:
+    - https://cwe.mitre.org/data/definitions/95.html
+
+- id: AP-PY-SEC-008
+  title: Hard-coded passwords or API keys in source code
+  language: [python]
+  frameworks: [plain]
+  category: security
+  severity: blocker
+  cwe: [CWE-798]
+  summary: Storing credentials directly in source code exposes them to anyone with repository access and leaks them into version control history. Load secrets from environment variables or a dedicated secret manager.
+  skill_line: Load secrets from environment variables or a vault; never hard-code credentials.
+  bad: |
+    DB_PASSWORD = "hunter2"
+    STRIPE_KEY = "sk_live_abc123"
+  good: |
+    DB_PASSWORD = os.environ["DB_PASSWORD"]
+    STRIPE_KEY = os.environ["STRIPE_KEY"]
+  detect:
+    - { tool: ruff, rule: S105 }
+    - { tool: ruff, rule: S106 }
+    - { tool: betterleaks, rule: generic-api-key }
+  prevent_in_skill: false
+  references:
+    - https://cwe.mitre.org/data/definitions/798.html
+
+- id: AP-PY-PERF-001
+  title: N+1 queries in Django or SQLAlchemy
+  language: [python]
+  frameworks: [django, sqlalchemy]
+  category: performance
+  severity: error
+  cwe: []
+  summary: Iterating over a queryset and touching a relation on each object issues one database query per object. Use `select_related` (Django) or `selectinload`/`joinedload` (SQLAlchemy) to fetch related objects in one query.
+  skill_line: Use `select_related`/`prefetch_related` (Django) or `selectinload`/`joinedload` (SQLAlchemy).
+  bad: |
+    for order in Order.objects.all():
+        print(order.customer.name)   # query per order
+  good: |
+    for order in Order.objects.select_related('customer').all():
+        print(order.customer.name)
+  detect: []
+  prevent_in_skill: true
+  references: []
+
+- id: AP-PY-PERF-002
+  title: Blocking calls inside async functions
+  language: [python]
+  frameworks: [plain, fastapi, aiohttp]
+  category: performance
+  severity: error
+  cwe: []
+  summary: Calling `requests.get`, `time.sleep`, or synchronous file I/O inside an `async def` blocks the entire event loop, negating the benefits of async. Replace with `httpx.AsyncClient`, `asyncio.sleep`, and `aiofiles`.
+  skill_line: In `async def`, use `httpx.AsyncClient`, `asyncio.sleep`, and `aiofiles`; never block.
+  bad: |
+    async def fetch_data():
+        resp = requests.get("https://api.example.com")   # blocks event loop
+  good: |
+    async def fetch_data():
+        async with httpx.AsyncClient() as client:
+            resp = await client.get("https://api.example.com", timeout=10)
+  detect:
+    - { tool: ruff, rule: ASYNC100 }
+    - { tool: ruff, rule: ASYNC110 }
+    - { tool: ruff, rule: ASYNC210 }
+    - { tool: ruff, rule: ASYNC220 }
+  prevent_in_skill: true
+  references: []
+
+- id: AP-PY-PERF-003
+  title: Building lists manually in loops instead of comprehensions
+  language: [python]
+  frameworks: [plain]
+  category: performance
+  severity: warn
+  cwe: []
+  summary: Appending to a list inside a `for` loop is slower than a list comprehension and less readable. Prefer comprehensions or built-ins like `map` and `filter`.
+  skill_line: Prefer list comprehensions over `append` in loops.
+  bad: |
+    result = []
+    for x in items:
+        result.append(x * 2)
+  good: |
+    result = [x * 2 for x in items]
+  detect:
+    - { tool: ruff, rule: PERF401 }
+  prevent_in_skill: false
+  references: []
+
+- id: AP-PY-MAINT-001
+  title: Bare except or swallowing all exceptions
+  language: [python]
+  frameworks: [plain]
+  category: maintainability
+  severity: error
+  cwe: [CWE-396]
+  summary: A bare `except:` or `except Exception: pass` silently discards errors including keyboard interrupts and system exits. Catch the narrowest exception type you expect and log or re-raise anything else.
+  skill_line: Catch the narrowest exception; log and re-raise; never `except: pass`.
+  bad: |
+    try:
+        process()
+    except:
+        pass
+  good: |
+    try:
+        process()
+    except ValueError as exc:
+        logger.error("invalid value: %s", exc)
+        raise
+  detect:
+    - { tool: ruff, rule: E722 }
+    - { tool: ruff, rule: BLE001 }
+  prevent_in_skill: true
+  references:
+    - https://cwe.mitre.org/data/definitions/396.html
+
+- id: AP-PY-MAINT-002
+  title: Mutable default arguments
+  language: [python]
+  frameworks: [plain]
+  category: maintainability
+  severity: error
+  cwe: []
+  summary: Default argument values are evaluated once at function definition time. Using a mutable object like `[]` or `{}` as a default means all callers share the same object, causing unexpected mutations across calls.
+  skill_line: Use `None` as default and initialise mutable defaults inside the function body.
+  bad: |
+    def add_item(item, collection=[]):
+        collection.append(item)
+        return collection
+  good: |
+    def add_item(item, collection=None):
+        if collection is None:
+            collection = []
+        collection.append(item)
+        return collection
+  detect:
+    - { tool: ruff, rule: B006 }
+  prevent_in_skill: true
+  references: []
+
+- id: AP-PY-MAINT-003
+  title: datetime.now() without timezone
+  language: [python]
+  frameworks: [plain]
+  category: maintainability
+  severity: warn
+  cwe: []
+  summary: Calling `datetime.now()` without a timezone argument returns a naive datetime that silently behaves differently across systems and DST transitions. Always pass `tz=timezone.utc` or use `datetime.now(tz=UTC)`.
+  skill_line: Use `datetime.now(tz=timezone.utc)` or `datetime.utcnow().replace(tzinfo=UTC)`.
+  bad: |
+    created_at = datetime.now()
+  good: |
+    from datetime import timezone
+    created_at = datetime.now(tz=timezone.utc)
+  detect:
+    - { tool: ruff, rule: DTZ005 }
+  prevent_in_skill: false
+  references: []
+
+- id: AP-PY-MAINT-004
+  title: print statements in application code or assert as production validation
+  language: [python]
+  frameworks: [plain]
+  category: maintainability
+  severity: warn
+  cwe: [CWE-617]
+  summary: Debug `print()` calls left in application code clutter logs and may leak sensitive data. `assert` is stripped when Python is run with optimisations (`-O`), so it must not gate production logic.
+  skill_line: Replace `print` with `logging`; replace `assert` for production guards with explicit exceptions.
+  bad: |
+    print(f"user id: {user.id}")
+    assert token is not None, "token required"
+  good: |
+    logger.debug("user id: %s", user.id)
+    if token is None:
+        raise ValueError("token required")
+  detect:
+    - { tool: ruff, rule: T201 }
+    - { tool: ruff, rule: S101 }
+  prevent_in_skill: false
+  references:
+    - https://cwe.mitre.org/data/definitions/617.html
+
+# ──────────────────────────────────────────────────────────────────────
+# §8.4 TypeScript / React
+# ──────────────────────────────────────────────────────────────────────
+
+- id: AP-TS-SEC-001
+  title: dangerouslySetInnerHTML or innerHTML with user data
+  language: [typescript]
+  frameworks: [react]
+  category: security
+  severity: blocker
+  cwe: [CWE-79]
+  summary: Setting `innerHTML` or `dangerouslySetInnerHTML` with unsanitized user content enables cross-site scripting. Render plain text as text nodes; run rich-text content through a strict allowlist sanitizer like DOMPurify before injecting HTML.
+  skill_line: Never set `innerHTML`/`dangerouslySetInnerHTML` from user data; use DOMPurify for rich text.
+  bad: |
+    <div dangerouslySetInnerHTML={{ __html: post.body }} />
+  good: |
+    import DOMPurify from 'dompurify';
+    <div dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(post.body) }} />
+  detect:
+    - { tool: eslint, rule: react/no-danger }
+    - { tool: eslint, rule: no-unsanitized/method }
+    - { tool: eslint, rule: no-unsanitized/property }
+  prevent_in_skill: true
+  references:
+    - https://cwe.mitre.org/data/definitions/79.html
+
+- id: AP-TS-SEC-002
+  title: eval, new Function, or dynamic code execution
+  language: [typescript]
+  frameworks: [plain]
+  category: security
+  severity: blocker
+  cwe: [CWE-95]
+  summary: Calling `eval`, `new Function`, or passing a string to `setTimeout`/`setInterval` evaluates arbitrary code. Use static code paths; if dynamic dispatch is needed, use an explicit map of known operations.
+  skill_line: No `eval`/`new Function`/`setTimeout(string)`; use a static dispatch map.
+  bad: |
+    const fn = new Function('return ' + userInput)();
+  good: |
+    const ops: Record<string, () => number> = { sum, avg };
+    const result = ops[userOp]?.() ?? 0;
+  detect:
+    - { tool: eslint, rule: no-eval }
+    - { tool: eslint, rule: no-new-func }
+    - { tool: eslint, rule: security/detect-eval-with-expression }
+  prevent_in_skill: true
+  references:
+    - https://cwe.mitre.org/data/definitions/95.html
+
+- id: AP-TS-SEC-003
+  title: Session tokens stored in localStorage
+  language: [typescript]
+  frameworks: [react, plain]
+  category: security
+  severity: error
+  cwe: [CWE-922]
+  summary: Tokens in `localStorage` are accessible to any script on the page, including injected third-party code. Store session tokens in `HttpOnly; Secure; SameSite=Strict` cookies managed by the server, which are invisible to JavaScript.
+  skill_line: Store session tokens in `HttpOnly; Secure; SameSite` cookies, not `localStorage`.
+  bad: |
+    localStorage.setItem('auth_token', response.token);
+  good: |
+    // Server sets: Set-Cookie: session=...; HttpOnly; Secure; SameSite=Strict
+    // Client just calls the API; cookie is sent automatically
+  detect:
+    - { tool: opengrep, rule: slopguard.react.token-in-localstorage }
+  prevent_in_skill: true
+  references:
+    - https://cwe.mitre.org/data/definitions/922.html
+
+- id: AP-TS-SEC-004
+  title: Unvalidated href or src from user data (javascript: URL)
+  language: [typescript]
+  frameworks: [react]
+  category: security
+  severity: blocker
+  cwe: [CWE-79]
+  summary: Setting `href` or `src` from user data without validating the URL scheme allows `javascript:` URLs that execute code when the link is followed. Validate that the scheme is `https:` or `http:` before using any user-supplied URL.
+  skill_line: Validate that user-supplied URLs have an `https:` or `http:` scheme before rendering.
+  bad: |
+    <a href={user.website}>Visit</a>  // user.website might be "javascript:alert(1)"
+  good: |
+    const safe = /^https?:\/\//.test(user.website) ? user.website : '#';
+    <a href={safe}>Visit</a>
+  detect:
+    - { tool: eslint, rule: react/jsx-no-script-url }
+    - { tool: eslint, rule: no-script-url }
+  prevent_in_skill: true
+  references:
+    - https://cwe.mitre.org/data/definitions/79.html
+
+- id: AP-TS-SEC-005
+  title: Secrets or API keys in frontend bundle or VITE_*/NEXT_PUBLIC_* env vars
+  language: [typescript]
+  frameworks: [react, plain]
+  category: security
+  severity: blocker
+  cwe: [CWE-798]
+  summary: Any value prefixed `VITE_` or `NEXT_PUBLIC_` is baked into the client bundle and visible to everyone. Backend-only credentials must never be referenced in frontend code. Use a backend proxy endpoint to make authenticated third-party API calls.
+  skill_line: Server-side secrets stay on the server; expose only through a backend proxy endpoint.
+  bad: |
+    const key = import.meta.env.VITE_STRIPE_SECRET_KEY; // exposed in bundle
+  good: |
+    // POST /api/payments → server uses process.env.STRIPE_SECRET_KEY
+    const result = await fetch('/api/payments', { method: 'POST', body });
+  detect:
+    - { tool: betterleaks, rule: generic-api-key }
+  prevent_in_skill: true
+  references:
+    - https://cwe.mitre.org/data/definitions/798.html
+
+- id: AP-TS-PERF-001
+  title: Incorrect useEffect dependencies or setState loop
+  language: [typescript]
+  frameworks: [react]
+  category: performance
+  severity: error
+  cwe: []
+  summary: Missing dependencies in `useEffect` cause stale closures; extra dependencies cause infinite re-render loops. List exactly the values the effect reads or writes. Compute derived state during the render phase instead of syncing it with a second `useEffect`.
+  skill_line: List every value the effect reads in `deps`; compute derived state in the render, not in effects.
+  bad: |
+    useEffect(() => { setCount(count + 1); }, []); // stale count; also infinite loop
+  good: |
+    useEffect(() => { fetchData(userId); }, [userId]);
+  detect:
+    - { tool: eslint, rule: react-hooks/exhaustive-deps }
+    - { tool: eslint, rule: react-hooks/rules-of-hooks }
+  prevent_in_skill: true
+  references: []
+
+- id: AP-TS-PERF-002
+  title: Array index used as React key in dynamic lists
+  language: [typescript]
+  frameworks: [react]
+  category: performance
+  severity: warn
+  cwe: []
+  summary: Using the array index as a key means React cannot distinguish reordered or removed items from changed items, causing incorrect reconciliation and input state loss. Use a stable, unique identifier from the data.
+  skill_line: Use a stable unique ID (e.g. `item.id`) as the React list key, not the array index.
+  bad: |
+    items.map((item, i) => <Row key={i} item={item} />)
+  good: |
+    items.map((item) => <Row key={item.id} item={item} />)
+  detect:
+    - { tool: eslint, rule: react/no-array-index-key }
+  prevent_in_skill: false
+  references: []
+
+- id: AP-TS-PERF-003
+  title: Components defined inside another component or new objects in context value
+  language: [typescript]
+  frameworks: [react]
+  category: performance
+  severity: error
+  cwe: []
+  summary: Defining a component inside a render function recreates it on every render, causing its subtree to remount and losing state. Creating a new object literal as the context `value` also triggers re-renders for all consumers on every parent render. Move component definitions to module scope and memoize context values.
+  skill_line: Define components at module scope; memoize context values with `useMemo`.
+  bad: |
+    function Page() {
+      function Row({ item }) { return <li>{item.name}</li>; }
+      return <ul>{items.map(i => <Row key={i.id} item={i} />)}</ul>;
+    }
+  good: |
+    function Row({ item }) { return <li>{item.name}</li>; } // module scope
+    function Page() {
+      return <ul>{items.map(i => <Row key={i.id} item={i} />)}</ul>;
+    }
+  detect:
+    - { tool: eslint, rule: react/no-unstable-nested-components }
+    - { tool: eslint, rule: react/jsx-no-constructed-context-values }
+  prevent_in_skill: true
+  references: []
+
+- id: AP-TS-PERF-004
+  title: fetch in useEffect without abort controller or race condition handling
+  language: [typescript]
+  frameworks: [react]
+  category: performance
+  severity: warn
+  cwe: []
+  summary: A `useEffect` that fetches data without an `AbortController` cannot cancel the in-flight request when the component unmounts or when a newer request is initiated, causing stale state updates and memory leaks. Use `AbortController` or a data-fetching library like `SWR` or `TanStack Query`.
+  skill_line: Cancel fetches on cleanup with `AbortController`; prefer a data-fetching library.
+  bad: |
+    useEffect(() => { fetch('/api/data').then(r => r.json()).then(setData); }, [id]);
+  good: |
+    useEffect(() => {
+      const ctrl = new AbortController();
+      fetch('/api/data', { signal: ctrl.signal }).then(r => r.json()).then(setData);
+      return () => ctrl.abort();
+    }, [id]);
+  detect: []
+  prevent_in_skill: true
+  references: []
+
+- id: AP-TS-MAINT-001
+  title: any type, non-null assertions, or unsafe casts on external data
+  language: [typescript]
+  frameworks: [plain]
+  category: maintainability
+  severity: warn
+  cwe: [CWE-20]
+  summary: Widening types to `any` or forcing non-null with `!` defeats TypeScript's safety guarantees. Validate and narrow external data at the boundary using a schema library, then the rest of the code can rely on correct types without assertions.
+  skill_line: Validate external data at the boundary (e.g. zod); avoid `any`, `!`, and unsafe `as` casts.
+  bad: |
+    const user = JSON.parse(body) as User;      // unchecked cast
+    return user.profile!.name;                  // may panic at runtime
+  good: |
+    const user = UserSchema.parse(JSON.parse(body));  // throws on invalid shape
+    return user.profile?.name ?? 'anonymous';
+  detect:
+    - { tool: eslint, rule: "@typescript-eslint/no-explicit-any" }
+    - { tool: eslint, rule: "@typescript-eslint/no-non-null-assertion" }
+  prevent_in_skill: true
+  references:
+    - https://cwe.mitre.org/data/definitions/20.html
+
+- id: AP-TS-MAINT-002
+  title: Unhandled or floating Promises
+  language: [typescript]
+  frameworks: [plain]
+  category: maintainability
+  severity: error
+  cwe: [CWE-755]
+  summary: A Promise that is not awaited, returned, or `.catch()`-ed discards errors silently. Always chain `.catch()`, use `await`, or prefix with the `void` keyword if intentionally fire-and-forget (with an accompanying comment explaining why).
+  skill_line: Await every Promise or chain `.catch()`; mark intentional fire-and-forget with `void`.
+  bad: |
+    async function save() { db.update(record); } // floating Promise
+  good: |
+    async function save() { await db.update(record); }
+  detect:
+    - { tool: eslint, rule: "@typescript-eslint/no-floating-promises" }
+    - { tool: eslint, rule: "@typescript-eslint/no-misused-promises" }
+  prevent_in_skill: true
+  references:
+    - https://cwe.mitre.org/data/definitions/755.html
+
+- id: AP-TS-MAINT-003
+  title: "@ts-ignore without description"
+  language: [typescript]
+  frameworks: [plain]
+  category: maintainability
+  severity: error
+  cwe: []
+  summary: Bare `@ts-ignore` silences errors without recording why they cannot be fixed. Use `@ts-expect-error` instead; it fails when the error is gone (so you know to remove it) and requires a description of at least 10 characters.
+  skill_line: Replace `@ts-ignore` with `@ts-expect-error // reason: <≥10 chars>`.
+  bad: |
+    // @ts-ignore
+    const val = legacyLib.compute(x);
+  good: |
+    // @ts-expect-error // reason: legacyLib types not updated for v3 API
+    const val = legacyLib.compute(x);
+  detect:
+    - { tool: eslint, rule: "@typescript-eslint/ban-ts-comment" }
+  prevent_in_skill: true
+  references: []
+
+- id: AP-TS-MAINT-004
+  title: Non-exhaustive switch on union type
+  language: [typescript]
+  frameworks: [plain]
+  category: maintainability
+  severity: error
+  cwe: []
+  summary: A `switch` statement that does not cover all members of a union type silently ignores new variants added to the type. Add a `default` branch that asserts `never` so TypeScript catches unhandled cases at compile time.
+  skill_line: Add a `default: assertNever(x)` branch so TypeScript catches unhandled union members.
+  bad: |
+    function label(s: 'ok' | 'err' | 'pending') {
+      switch (s) { case 'ok': return 'OK'; case 'err': return 'Error'; }
+    }
+  good: |
+    function label(s: 'ok' | 'err' | 'pending'): string {
+      switch (s) {
+        case 'ok': return 'OK'; case 'err': return 'Error';
+        case 'pending': return 'Pending';
+        default: { const _: never = s; return _; }
+      }
+    }
+  detect: []
+  prevent_in_skill: false
+  references: []
+
+# ──────────────────────────────────────────────────────────────────────
+# §8.5 Node.js (backend)
+# ──────────────────────────────────────────────────────────────────────
+
+- id: AP-NODE-SEC-001
+  title: Prototype pollution via recursive merge or req.body property assignment
+  language: [node]
+  frameworks: [express, plain]
+  category: security
+  severity: blocker
+  cwe: [CWE-1321]
+  summary: A recursive merge that copies all properties from a user-supplied object can set `__proto__` or `constructor.prototype`, corrupting the global object prototype. Use `Object.create(null)` for dictionaries, validate input schemas before merging, and use `Object.hasOwn` to guard property access.
+  skill_line: Validate schemas before merging user objects; use `Object.create(null)` for hash maps.
+  bad: |
+    function merge(dst, src) {
+      for (const k in src) dst[k] = src[k]; // pollutes if src has __proto__
+    }
+    merge(config, req.body);
+  good: |
+    const safe = schema.parse(req.body);     // throws on unexpected keys
+    Object.assign(config, safe);
+  detect:
+    - { tool: opengrep, rule: slopguard.node.prototype-pollution-merge }
+  prevent_in_skill: true
+  references:
+    - https://cwe.mitre.org/data/definitions/1321.html
+
+- id: AP-NODE-SEC-002
+  title: child_process.exec with template literal or string concatenation
+  language: [node]
+  frameworks: [plain]
+  category: security
+  severity: blocker
+  cwe: [CWE-78]
+  summary: Passing a shell command string with embedded user data to `exec` or `execSync` allows shell metacharacter injection. Use `execFile` or `spawn` with an explicit argv array so no shell is invoked.
+  skill_line: Use `execFile`/`spawn` with an argv array; never `exec` with a template literal.
+  bad: |
+    exec(`convert ${req.query.file} output.png`);
+  good: |
+    execFile('convert', [req.query.file, 'output.png'], callback);
+  detect:
+    - { tool: eslint, rule: security/detect-child-process }
+    - { tool: opengrep, rule: slopguard.node.exec-template-literal }
+  prevent_in_skill: true
+  references:
+    - https://cwe.mitre.org/data/definitions/78.html
+
+- id: AP-NODE-SEC-003
+  title: File path built from request input without validation
+  language: [node]
+  frameworks: [express, plain]
+  category: security
+  severity: error
+  cwe: [CWE-22]
+  summary: Building a file path from a query parameter or route segment without canonicalising and prefix-checking it enables directory traversal. Use `path.resolve` to get an absolute path and verify it starts with the expected base directory.
+  skill_line: Resolve paths with `path.resolve`, then verify the prefix matches your base directory.
+  bad: |
+    const data = fs.readFileSync(`./uploads/${req.query.file}`);
+  good: |
+    const base = path.resolve('./uploads');
+    const target = path.resolve(base, req.query.file);
+    if (!target.startsWith(base + path.sep)) return res.status(400).end();
+    const data = fs.readFileSync(target);
+  detect:
+    - { tool: eslint, rule: security/detect-non-literal-fs-filename }
+  prevent_in_skill: true
+  references:
+    - https://cwe.mitre.org/data/definitions/22.html
+
+- id: AP-NODE-SEC-004
+  title: ReDoS — nested quantifiers or RegExp from user input
+  language: [node]
+  frameworks: [plain]
+  category: security
+  severity: blocker
+  cwe: [CWE-1333]
+  summary: Regular expressions with nested quantifiers and ambiguous paths cause catastrophic backtracking when matched against crafted input, blocking the event loop. Audit patterns for super-linear worst-case complexity and never pass user input as a regular expression literal without sanitising it first.
+  skill_line: Avoid nested quantifiers in regexes; never construct `RegExp(userInput)` without length limits.
+  bad: |
+    const re = new RegExp(req.query.pattern);   // arbitrary regex from user
+    str.match(/(\w+)+/);                         // exponential backtracking
+  good: |
+    if (!/^[a-z0-9_-]+$/i.test(req.query.pattern)) return res.status(400).end();
+    const re = new RegExp(req.query.pattern);
+  detect:
+    - { tool: eslint, rule: regexp/no-super-linear-backtracking }
+    - { tool: eslint, rule: security/detect-unsafe-regex }
+  prevent_in_skill: true
+  references:
+    - https://cwe.mitre.org/data/definitions/1333.html
+
+- id: AP-NODE-SEC-005
+  title: Timing-unsafe comparison of secrets with ===
+  language: [node]
+  frameworks: [plain]
+  category: security
+  severity: error
+  cwe: [CWE-208]
+  summary: JavaScript's `===` short-circuits on the first mismatching byte, leaking information about how many characters of the secret match. Compare HMAC digests or tokens with `crypto.timingSafeEqual` to eliminate the timing side-channel.
+  skill_line: Compare secrets with `crypto.timingSafeEqual`; never `===` for HMAC or token values.
+  bad: |
+    if (req.headers['x-api-key'] === process.env.API_KEY) { /* allow */ }
+  good: |
+    const a = Buffer.from(req.headers['x-api-key'] ?? '');
+    const b = Buffer.from(process.env.API_KEY);
+    if (a.length === b.length && crypto.timingSafeEqual(a, b)) { /* allow */ }
+  detect:
+    - { tool: eslint, rule: security/detect-possible-timing-attacks }
+  prevent_in_skill: true
+  references:
+    - https://cwe.mitre.org/data/definitions/208.html
+
+- id: AP-NODE-SEC-006
+  title: Math.random used for tokens or session IDs
+  language: [node]
+  frameworks: [plain]
+  category: security
+  severity: blocker
+  cwe: [CWE-330]
+  summary: `Math.random` is not a cryptographic PRNG; its output is predictable. Use `crypto.randomBytes` or `crypto.randomUUID` for any value that must not be guessable.
+  skill_line: Use `crypto.randomBytes(32)` or `crypto.randomUUID()` for tokens; never `Math.random()`.
+  bad: |
+    const token = Math.random().toString(36).slice(2);
+  good: |
+    const token = crypto.randomBytes(32).toString('hex');
+  detect:
+    - { tool: opengrep, rule: slopguard.node.math-random-token }
+  prevent_in_skill: true
+  references:
+    - https://cwe.mitre.org/data/definitions/330.html
+
+- id: AP-NODE-SEC-007
+  title: Missing request body size limit or HTTP security headers
+  language: [node]
+  frameworks: [express, plain]
+  category: security
+  severity: error
+  cwe: [CWE-400, CWE-693]
+  summary: Without a body size limit, a client can send gigabytes of JSON and exhaust server memory. Without security headers (Content-Security-Policy, X-Frame-Options, etc.) browsers apply permissive defaults. Set `express.json({ limit })` and use `helmet` or equivalent.
+  skill_line: Set `express.json({ limit: '1mb' })` and apply `helmet()` for security headers.
+  bad: |
+    app.use(express.json()); // no limit; no security headers
+  good: |
+    app.use(helmet());
+    app.use(express.json({ limit: '1mb' }));
+  detect:
+    - { tool: opengrep, rule: slopguard.node.express-no-body-limit }
+  prevent_in_skill: true
+  references:
+    - https://cwe.mitre.org/data/definitions/400.html
+    - https://cwe.mitre.org/data/definitions/693.html
+
+- id: AP-NODE-SEC-008
+  title: Dynamic require or import from user-controlled path
+  language: [node]
+  frameworks: [plain]
+  category: security
+  severity: blocker
+  cwe: [CWE-829]
+  summary: Calling `require(userInput)` or dynamic `import(userInput)` loads arbitrary modules from the file system or from `node_modules`. Use a static map of allowed module names instead of dynamic resolution.
+  skill_line: Replace `require(variable)` with a static map of allowed handlers.
+  bad: |
+    const plugin = require(req.query.plugin);
+  good: |
+    const plugins = { pdf: require('./plugins/pdf'), csv: require('./plugins/csv') };
+    const plugin = plugins[req.query.plugin] ?? (() => { throw new Error('unknown'); });
+  detect:
+    - { tool: eslint, rule: security/detect-non-literal-require }
+  prevent_in_skill: false
+  references:
+    - https://cwe.mitre.org/data/definitions/829.html
+
+- id: AP-NODE-SEC-009
+  title: jwt.verify without explicit algorithms list
+  language: [node]
+  frameworks: [express, plain]
+  category: security
+  severity: blocker
+  cwe: [CWE-347]
+  summary: Omitting the `algorithms` array from `jwt.verify` lets an attacker switch the token header to `"alg": "none"` and bypass signature verification entirely. Always pass an explicit list of accepted algorithms.
+  skill_line: Always pass `{ algorithms: ['HS256'] }` (or your chosen alg) to `jwt.verify`.
+  bad: |
+    const payload = jwt.verify(token, secret);
+  good: |
+    const payload = jwt.verify(token, secret, { algorithms: ['HS256'] });
+  detect:
+    - { tool: opengrep, rule: slopguard.node.jwt-verify-without-algorithms }
+  prevent_in_skill: true
+  references:
+    - https://cwe.mitre.org/data/definitions/347.html
+
+- id: AP-NODE-PERF-001
+  title: Synchronous I/O or crypto in request handlers
+  language: [node]
+  frameworks: [express, plain]
+  category: performance
+  severity: error
+  cwe: [CWE-400]
+  summary: Synchronous calls like `readFileSync`, `pbkdf2Sync`, or `execSync` block the Node.js event loop for their full duration, preventing all other requests from being served. Replace them with the async equivalents or run them in a worker thread.
+  skill_line: Use async I/O (`fs.promises.*`, `util.promisify`) and async crypto in all request handlers.
+  bad: |
+    app.get('/file', (req, res) => {
+      const data = fs.readFileSync('./data.json');  // blocks event loop
+      res.json(JSON.parse(data));
+    });
+  good: |
+    app.get('/file', async (req, res) => {
+      const data = await fs.promises.readFile('./data.json');
+      res.json(JSON.parse(data));
+    });
+  detect:
+    - { tool: eslint, rule: n/no-sync }
+  prevent_in_skill: true
+  references:
+    - https://cwe.mitre.org/data/definitions/400.html
+
+- id: AP-NODE-PERF-002
+  title: Unbounded JSON.parse or stringify on the event loop
+  language: [node]
+  frameworks: [express, plain]
+  category: performance
+  severity: warn
+  cwe: [CWE-400]
+  summary: Parsing or serialising large JSON documents synchronously on the main thread blocks the event loop proportionally to the document size. Apply a body size limit at the middleware layer and stream or offload oversized payloads to a worker thread.
+  skill_line: Limit JSON body size at the middleware layer; offload large payloads to a worker thread.
+  bad: |
+    app.post('/import', (req, res) => {
+      const rows = JSON.parse(req.body); // may be megabytes
+    });
+  good: |
+    app.use(express.json({ limit: '1mb' }));
+    // Large imports: stream to a worker_thread or a queue processor
+  detect: []
+  prevent_in_skill: true
+  references:
+    - https://cwe.mitre.org/data/definitions/400.html
+
+- id: AP-NODE-PERF-003
+  title: CPU-bound work on the event loop or flooding the libuv thread pool
+  language: [node]
+  frameworks: [plain]
+  category: performance
+  severity: warn
+  cwe: [CWE-400]
+  summary: CPU-intensive operations (image processing, encryption, compression) executed on the main thread block the event loop for all concurrent requests. Offload them to `worker_threads` or a task queue. Equally, spawning many `fs.*` operations in parallel floods the libuv thread pool; use a concurrency limiter.
+  skill_line: Offload CPU-intensive work to `worker_threads`; limit parallel `fs.*` concurrency.
+  bad: |
+    app.post('/resize', (req, res) => {
+      const img = sharp(req.body).resize(800).toBufferSync(); // blocks event loop
+    });
+  good: |
+    const { resize } = require('./workers/imageWorker');
+    app.post('/resize', async (req, res) => {
+      const img = await resize(req.body, 800);
+      res.send(img);
+    });
+  detect: []
+  prevent_in_skill: true
+  references:
+    - https://cwe.mitre.org/data/definitions/400.html
+
+- id: AP-NODE-MAINT-001
+  title: No unhandledRejection or uncaughtException strategy
+  language: [node]
+  frameworks: [plain]
+  category: maintainability
+  severity: warn
+  cwe: [CWE-755]
+  summary: Without handlers for `unhandledRejection` and `uncaughtException`, a crashed async operation or unexpected throw can exit the process without any diagnostic context. Register handlers that log the error and shut down gracefully.
+  skill_line: Register `process.on('unhandledRejection')` and `uncaughtException` handlers for graceful shutdown.
+  bad: |
+    // No process-level error handlers — process exits silently on async throw
+  good: |
+    process.on('unhandledRejection', (reason) => {
+      logger.fatal({ err: reason }, 'Unhandled rejection');
+      process.exit(1);
+    });
+  detect: []
+  prevent_in_skill: true
+  references:
+    - https://cwe.mitre.org/data/definitions/755.html
+
+- id: AP-NODE-MAINT-002
+  title: Deprecated Node.js API usage (new Buffer, fs.exists)
+  language: [node]
+  frameworks: [plain]
+  category: maintainability
+  severity: error
+  cwe: [CWE-477]
+  summary: The `new Buffer()` constructor is deprecated and insecure (it allocates uninitialized memory when called with a number). `fs.exists` was deprecated because its callback signature breaks Node.js error-first conventions. Use `Buffer.from`, `Buffer.alloc`, and `fs.access` instead.
+  skill_line: Use `Buffer.from`/`Buffer.alloc` instead of `new Buffer`; use `fs.stat`/`access` instead of `fs.exists`.
+  bad: |
+    const buf = new Buffer(userInput);
+    fs.exists(path, (exists) => { /* … */ });
+  good: |
+    const buf = Buffer.from(userInput);
+    fs.access(path, fs.constants.F_OK, (err) => { /* … */ });
+  detect:
+    - { tool: eslint, rule: n/no-deprecated-api }
+    - { tool: eslint, rule: security/detect-new-buffer }
+  prevent_in_skill: false
+  references:
+    - https://cwe.mitre.org/data/definitions/477.html
+
+# ──────────────────────────────────────────────────────────────────────
+# §8.6 SQL / databases
+# ──────────────────────────────────────────────────────────────────────
+
+- id: AP-SQL-001
+  title: SELECT * in application code
+  language: [sql]
+  frameworks: [plain]
+  category: performance
+  severity: warn
+  cwe: []
+  summary: Using `SELECT *` transfers all columns regardless of which ones the application actually uses, wastes network bandwidth, and breaks application code when columns are added or removed. Always name the columns you need.
+  skill_line: Name every column in SELECT; never use `SELECT *` in application queries.
+  bad: |
+    SELECT * FROM orders WHERE customer_id = ?;
+  good: |
+    SELECT id, total, status, created_at FROM orders WHERE customer_id = ?;
+  detect: []
+  prevent_in_skill: true
+  references: []
+
+- id: AP-SQL-002
+  title: CREATE INDEX without CONCURRENTLY on a live PostgreSQL table
+  language: [sql]
+  frameworks: [postgresql]
+  category: performance
+  severity: error
+  cwe: []
+  summary: A regular `CREATE INDEX` in PostgreSQL acquires a full table lock for the duration of the build, blocking all reads and writes. Use `CREATE INDEX CONCURRENTLY` to build the index without a long-held lock. Run it outside a transaction block.
+  skill_line: Always `CREATE INDEX CONCURRENTLY` in migrations on live tables; run outside a transaction.
+  bad: |
+    CREATE INDEX idx_orders_email ON orders (email);
+  good: |
+    CREATE INDEX CONCURRENTLY idx_orders_email ON orders (email);
+  detect: []
+  prevent_in_skill: true
+  references: []
+
+- id: AP-SQL-003
+  title: ADD COLUMN NOT NULL without a default on a large live table
+  language: [sql]
+  frameworks: [postgresql, mysql]
+  category: performance
+  severity: error
+  cwe: []
+  summary: Adding a NOT NULL column without a default on a large table requires rewriting every row while holding an access exclusive lock, causing downtime. The safe migration pattern is: add nullable → backfill → add NOT VALID constraint → validate.
+  skill_line: Add columns nullable first, backfill, then add constraint `NOT VALID` → `VALIDATE CONSTRAINT`.
+  bad: |
+    ALTER TABLE orders ADD COLUMN processed BOOLEAN NOT NULL DEFAULT FALSE;
+    -- rewrites all rows; locks table
+  good: |
+    ALTER TABLE orders ADD COLUMN processed BOOLEAN;
+    UPDATE orders SET processed = FALSE WHERE processed IS NULL;
+    ALTER TABLE orders ADD CONSTRAINT orders_processed_nn CHECK (processed IS NOT NULL) NOT VALID;
+    ALTER TABLE orders VALIDATE CONSTRAINT orders_processed_nn;
+  detect: []
+  prevent_in_skill: true
+  references: []
+
+- id: AP-SQL-004
+  title: Foreign key column without an index
+  language: [sql]
+  frameworks: [plain]
+  category: performance
+  severity: warn
+  cwe: []
+  summary: A foreign key column without an index makes every JOIN and cascade DELETE that scans the referencing table a full sequential scan, which becomes catastrophic at scale. Add a covering index on every foreign key column at creation time.
+  skill_line: Create an index on every foreign key column; missing FK indexes cause full-table scans.
+  bad: |
+    ALTER TABLE order_items ADD COLUMN order_id BIGINT REFERENCES orders(id);
+    -- no index on order_id
+  good: |
+    ALTER TABLE order_items ADD COLUMN order_id BIGINT REFERENCES orders(id);
+    CREATE INDEX CONCURRENTLY idx_order_items_order_id ON order_items (order_id);
+  detect:
+    - { tool: opengrep, rule: slopguard.laravel.migration-fk-without-index }
+  prevent_in_skill: true
+  references: []
+
+- id: AP-SQL-005
+  title: Changing a column type in place on a live table
+  language: [sql]
+  frameworks: [postgresql, mysql]
+  category: performance
+  severity: error
+  cwe: []
+  summary: An `ALTER COLUMN TYPE` that changes the storage representation requires a full table rewrite while holding an exclusive lock, causing downtime. Instead, add a new column with the target type, migrate the data, swap the application to the new column, then drop the old one.
+  skill_line: Add a new column for the target type, migrate data, then drop the old column.
+  bad: |
+    ALTER TABLE users ALTER COLUMN phone TYPE VARCHAR(20);
+  good: |
+    ALTER TABLE users ADD COLUMN phone_v2 VARCHAR(20);
+    UPDATE users SET phone_v2 = phone::VARCHAR(20);
+    -- application switch → then: ALTER TABLE users DROP COLUMN phone;
+  detect: []
+  prevent_in_skill: false
+  references: []
+
+- id: AP-SQL-006
+  title: MySQL ALTER on a large table without online DDL
+  language: [sql]
+  frameworks: [mysql]
+  category: performance
+  severity: warn
+  cwe: []
+  summary: A naive `ALTER TABLE` in MySQL copies the entire table, locking it for writes for the duration. Use `ALGORITHM=INPLACE, LOCK=NONE` for schema changes that support it, or use gh-ost / pt-online-schema-change for changes that don't.
+  skill_line: Use `ALGORITHM=INPLACE, LOCK=NONE` or gh-ost for large-table MySQL ALTERs.
+  bad: |
+    ALTER TABLE products ADD COLUMN sku VARCHAR(64);
+  good: |
+    ALTER TABLE products ADD COLUMN sku VARCHAR(64), ALGORITHM=INPLACE, LOCK=NONE;
+  detect: []
+  prevent_in_skill: true
+  references: []
+
+- id: AP-SQL-007
+  title: OFFSET-based pagination on large result sets
+  language: [sql]
+  frameworks: [plain]
+  category: performance
+  severity: warn
+  cwe: []
+  summary: Paginating with `OFFSET n` requires the database to scan and discard all preceding rows, becoming progressively slower on later pages. Use keyset (cursor) pagination instead — filter by the last-seen value of an indexed column.
+  skill_line: Paginate with keyset/cursor (`WHERE id > ?`) instead of `OFFSET`; OFFSET degrades at scale.
+  bad: |
+    SELECT id, name FROM products ORDER BY id LIMIT 20 OFFSET 10000;
+  good: |
+    SELECT id, name FROM products WHERE id > ? ORDER BY id LIMIT 20;
+  detect: []
+  prevent_in_skill: true
+  references: []
+
+- id: AP-SQL-008
+  title: UPDATE or DELETE without WHERE clause in migrations or scripts
+  language: [sql]
+  frameworks: [plain]
+  category: security
+  severity: blocker
+  cwe: []
+  summary: An `UPDATE` or `DELETE` with no `WHERE` clause modifies or removes every row in the table. Always include an explicit condition, and for batch operations use row-limited loops with a delay to avoid long-held locks.
+  skill_line: Always include a WHERE clause on UPDATE/DELETE; run large deletes in batches.
+  bad: |
+    DELETE FROM audit_logs;        -- deletes all rows
+    UPDATE users SET active = 0;   -- updates all rows
+  good: |
+    DELETE FROM audit_logs WHERE created_at < NOW() - INTERVAL 90 DAY LIMIT 1000;
+    UPDATE users SET active = 0 WHERE last_login < NOW() - INTERVAL 365 DAY;
+  detect: []
+  prevent_in_skill: false
+  references: []
+
+# ──────────────────────────────────────────────────────────────────────
+# §8.7 IaC, containers, CI
+# ──────────────────────────────────────────────────────────────────────
+
+- id: AP-TF-001
+  title: Public S3 bucket or missing Block Public Access
+  language: [terraform]
+  frameworks: [aws]
+  category: security
+  severity: blocker
+  cwe: []
+  summary: An S3 bucket without Block Public Access settings can be made publicly accessible through bucket or object ACLs. Always attach `aws_s3_bucket_public_access_block` with all four flags set to `true`.
+  skill_line: Attach `aws_s3_bucket_public_access_block` with all four block flags set to `true`.
+  bad: |
+    resource "aws_s3_bucket" "data" { bucket = "my-data" }
+    # No aws_s3_bucket_public_access_block
+  good: |
+    resource "aws_s3_bucket_public_access_block" "data" {
+      bucket                  = aws_s3_bucket.data.id
+      block_public_acls       = true; block_public_policy  = true
+      ignore_public_acls      = true; restrict_public_buckets = true
+    }
+  detect: []
+  prevent_in_skill: true
+  references: []
+
+- id: AP-TF-002
+  title: Security group open to 0.0.0.0/0 on admin or database ports
+  language: [terraform]
+  frameworks: [aws]
+  category: security
+  severity: blocker
+  cwe: []
+  summary: Allowing inbound traffic from any IP on ports like 22 (SSH), 3389 (RDP), 3306 (MySQL), or 5432 (Postgres) exposes those services to the entire internet. Restrict ingress to known CIDR ranges or VPC-internal access only.
+  skill_line: Never allow `0.0.0.0/0` inbound on admin/database ports; restrict to specific CIDRs.
+  bad: |
+    ingress { from_port = 22; to_port = 22; cidr_blocks = ["0.0.0.0/0"] }
+  good: |
+    ingress { from_port = 22; to_port = 22; cidr_blocks = ["10.0.0.0/8"] }
+  detect:
+    - { tool: checkov, rule: CKV_AWS_25 }
+  prevent_in_skill: true
+  references: []
+
+- id: AP-TF-003
+  title: Unencrypted EBS volumes, RDS instances, or S3 objects
+  language: [terraform]
+  frameworks: [aws]
+  category: security
+  severity: blocker
+  cwe: []
+  summary: EBS volumes, RDS instances, and S3 buckets without server-side encryption store data in plaintext at rest. Enable encryption on every resource that may hold sensitive data; use a customer-managed KMS key for compliance-sensitive workloads.
+  skill_line: Enable server-side encryption on every EBS, RDS, and S3 resource.
+  bad: |
+    resource "aws_db_instance" "app" { storage_encrypted = false }
+  good: |
+    resource "aws_db_instance" "app" { storage_encrypted = true; kms_key_id = aws_kms_key.rds.arn }
+  detect: []
+  prevent_in_skill: true
+  references: []
+
+- id: AP-TF-004
+  title: IAM policy with Action * or Resource *
+  language: [terraform]
+  frameworks: [aws]
+  category: security
+  severity: blocker
+  cwe: []
+  summary: Wildcard IAM actions or resources grant excessive permissions that violate the principle of least privilege. Define the narrowest set of allowed actions and the specific resource ARNs the role needs.
+  skill_line: List specific IAM actions and resource ARNs; never use `Action: *` or `Resource: *`.
+  bad: |
+    statement { actions = ["*"]; resources = ["*"] }
+  good: |
+    statement {
+      actions = ["s3:GetObject", "s3:PutObject"]
+      resources = ["arn:aws:s3:::my-bucket/*"]
+    }
+  detect: []
+  prevent_in_skill: true
+  references: []
+
+- id: AP-TF-005
+  title: Hard-coded secrets in Terraform files or non-sensitive outputs
+  language: [terraform]
+  frameworks: [aws, plain]
+  category: security
+  severity: blocker
+  cwe: [CWE-798]
+  summary: Storing credentials in `.tf` or `.tfvars` files commits them to version control. Mark any output that contains a sensitive value with `sensitive = true` to prevent it appearing in plan output. Load secrets from environment variables or a secrets manager data source.
+  skill_line: Use `sensitive = true` on secret outputs; load credentials from env vars or secrets manager.
+  bad: |
+    variable "db_password" { default = "hunter2" }
+  good: |
+    variable "db_password" { type = string; sensitive = true }
+    # value supplied via TF_VAR_db_password or AWS Secrets Manager data source
+  detect:
+    - { tool: betterleaks, rule: generic-api-key }
+  prevent_in_skill: true
+  references:
+    - https://cwe.mitre.org/data/definitions/798.html
+
+- id: AP-TF-006
+  title: Unpinned provider or module versions
+  language: [terraform]
+  frameworks: [plain]
+  category: security
+  severity: error
+  cwe: []
+  summary: Unpinned providers or modules (`source = "hashicorp/aws"` with no version constraint) can pull in breaking or malicious releases when you run `terraform init -upgrade`. Pin every provider and module to a specific version constraint.
+  skill_line: Pin every provider and module to an exact version constraint in `required_providers`.
+  bad: |
+    terraform { required_providers { aws = { source = "hashicorp/aws" } } }
+  good: |
+    terraform {
+      required_providers { aws = { source = "hashicorp/aws"; version = "~> 5.56" } }
+    }
+  detect: []
+  prevent_in_skill: true
+  references: []
+
+- id: AP-TF-007
+  title: RDS without deletion_protection or automated backups
+  language: [terraform]
+  frameworks: [aws]
+  category: maintainability
+  severity: warn
+  cwe: []
+  summary: An RDS instance without `deletion_protection = true` can be destroyed by a single `terraform destroy` or an accidental Terraform run. Automated backups are disabled by default; set `backup_retention_period` to at least 7 days.
+  skill_line: Set `deletion_protection = true` and `backup_retention_period >= 7` on all RDS instances.
+  bad: |
+    resource "aws_db_instance" "app" { backup_retention_period = 0 }
+  good: |
+    resource "aws_db_instance" "app" {
+      deletion_protection = true; backup_retention_period = 7
+    }
+  detect: []
+  prevent_in_skill: false
+  references: []
+
+- id: AP-K8S-001
+  title: Privileged container, privilege escalation, or running as root
+  language: [kubernetes]
+  frameworks: [plain]
+  category: security
+  severity: blocker
+  cwe: []
+  summary: A privileged container has the same access to the host as a root process and can escape the container boundary. Prevent privilege escalation and enforce a non-root UID with `securityContext` at the pod and container level.
+  skill_line: Set `privileged: false`, `allowPrivilegeEscalation: false`, and `runAsNonRoot: true`.
+  bad: |
+    securityContext:
+      privileged: true
+  good: |
+    securityContext:
+      runAsNonRoot: true; runAsUser: 1000
+      allowPrivilegeEscalation: false
+      capabilities: { drop: ["ALL"] }
+  detect:
+    - { tool: kube-linter, rule: privileged-container }
+    - { tool: kube-linter, rule: privilege-escalation-container }
+    - { tool: kube-linter, rule: run-as-non-root }
+  prevent_in_skill: true
+  references: []
+
+- id: AP-K8S-002
+  title: Missing CPU and memory resource requests and limits
+  language: [kubernetes]
+  frameworks: [plain]
+  category: performance
+  severity: error
+  cwe: []
+  summary: Containers without resource requests are scheduled on any node regardless of capacity; containers without limits can consume all node resources and starve neighbouring pods. Define requests and limits for every container.
+  skill_line: Define `resources.requests` and `resources.limits` for every container.
+  bad: |
+    containers:
+      - name: app
+        image: my-app:latest
+        # no resources block
+  good: |
+    resources:
+      requests: { cpu: "250m", memory: "256Mi" }
+      limits:   { cpu: "500m", memory: "512Mi" }
+  detect:
+    - { tool: kube-linter, rule: unset-cpu-requirements }
+    - { tool: kube-linter, rule: unset-memory-requirements }
+  prevent_in_skill: true
+  references: []
+
+- id: AP-K8S-003
+  title: Container image with :latest tag or no tag
+  language: [kubernetes]
+  frameworks: [plain]
+  category: security
+  severity: error
+  cwe: []
+  summary: The `latest` tag (or no tag) makes deployments non-deterministic — the same manifest can pull different images across nodes or over time. Pin images to an immutable digest or an explicit version tag, and use a digest for production workloads.
+  skill_line: Pin container images to an explicit version tag or an immutable digest.
+  bad: |
+    image: my-app:latest
+  good: |
+    image: my-app:1.4.2@sha256:abc123def456...
+  detect:
+    - { tool: kube-linter, rule: latest-tag }
+  prevent_in_skill: true
+  references: []
+
+- id: AP-K8S-004
+  title: Missing readiness or liveness probes
+  language: [kubernetes]
+  frameworks: [plain]
+  category: performance
+  severity: warn
+  cwe: []
+  summary: Without a readiness probe, Kubernetes routes traffic to a pod before it is ready to serve requests. Without a liveness probe, a deadlocked pod is never restarted. Define both probes for every container serving traffic.
+  skill_line: Define both `readinessProbe` and `livenessProbe` for every traffic-serving container.
+  bad: |
+    containers:
+      - name: app
+        image: my-app:1.0.0
+        # no probes
+  good: |
+    readinessProbe: { httpGet: { path: /health/ready, port: 8080 }, initialDelaySeconds: 5 }
+    livenessProbe:  { httpGet: { path: /health/live,  port: 8080 }, periodSeconds: 15 }
+  detect:
+    - { tool: kube-linter, rule: no-readiness-probe }
+    - { tool: kube-linter, rule: no-liveness-probe }
+  prevent_in_skill: false
+  references: []
+
+- id: AP-K8S-005
+  title: Secrets passed as literal environment variables or in ConfigMap
+  language: [kubernetes]
+  frameworks: [plain]
+  category: security
+  severity: blocker
+  cwe: []
+  summary: Embedding secret values directly in pod specs or ConfigMaps stores them in etcd in plaintext and exposes them to anyone who can read the pod spec. Reference Kubernetes Secrets (with etcd encryption at rest enabled) or an external secrets operator.
+  skill_line: Reference `secretKeyRef` from a Kubernetes Secret; never hard-code secrets in env or ConfigMap.
+  bad: |
+    env:
+      - name: DB_PASSWORD
+        value: "hunter2"
+  good: |
+    env:
+      - name: DB_PASSWORD
+        valueFrom:
+          secretKeyRef: { name: db-credentials, key: password }
+  detect:
+    - { tool: kube-linter, rule: env-var-secret }
+    - { tool: betterleaks, rule: generic-api-key }
+  prevent_in_skill: true
+  references: []
+
+- id: AP-K8S-006
+  title: Writable root filesystem, hostNetwork, or dangerous hostPath mounts
+  language: [kubernetes]
+  frameworks: [plain]
+  category: security
+  severity: error
+  cwe: []
+  summary: A writable root filesystem lets a compromised container persist changes. `hostNetwork: true` shares the node's network namespace. Host path mounts expose sensitive node directories. Use `readOnlyRootFilesystem: true`, avoid `hostNetwork`, and whitelist specific safe paths for volume mounts.
+  skill_line: Set `readOnlyRootFilesystem: true`; avoid `hostNetwork` and unrestricted `hostPath` mounts.
+  bad: |
+    securityContext:
+      readOnlyRootFilesystem: false
+    volumes:
+      - name: host-dir
+        hostPath: { path: /etc }
+  good: |
+    securityContext:
+      readOnlyRootFilesystem: true
+    # emptyDir for tmpfs writes; specific safe hostPaths only
+  detect:
+    - { tool: kube-linter, rule: no-read-only-root-fs }
+    - { tool: kube-linter, rule: host-network }
+    - { tool: kube-linter, rule: sensitive-host-mounts }
+  prevent_in_skill: false
+  references: []
+
+- id: AP-DOCKER-001
+  title: Base image using :latest tag or no digest in production
+  language: [docker]
+  frameworks: [plain]
+  category: security
+  severity: error
+  cwe: []
+  summary: The `latest` tag resolves to a different image over time, making builds non-deterministic and potentially pulling in breaking changes or supply-chain compromises. Pin the base image to a specific digest for production images.
+  skill_line: Pin base images to a specific digest; never use `:latest` in production.
+  bad: |
+    FROM node:latest
+  good: |
+    FROM node:20-alpine@sha256:abc123def456...
+  detect:
+    - { tool: hadolint, rule: DL3007 }
+    - { tool: hadolint, rule: DL3006 }
+  prevent_in_skill: true
+  references: []
+
+- id: AP-DOCKER-002
+  title: Container runs as root user
+  language: [docker]
+  frameworks: [plain]
+  category: security
+  severity: error
+  cwe: []
+  summary: Running application processes as root inside a container means a process escape grants root access to the host kernel namespace. Always create a dedicated non-root user and switch to it with `USER` before the final `CMD` or `ENTRYPOINT`.
+  skill_line: Create a non-root user in the Dockerfile and end with `USER nonroot` before CMD.
+  bad: |
+    FROM node:20-alpine
+    COPY . .
+    CMD ["node", "server.js"]
+    # process runs as root
+  good: |
+    FROM node:20-alpine
+    RUN addgroup -S app && adduser -S app -G app
+    COPY --chown=app:app . .
+    USER app
+    CMD ["node", "server.js"]
+  detect:
+    - { tool: hadolint, rule: DL3002 }
+  prevent_in_skill: true
+  references: []
+
+- id: AP-DOCKER-003
+  title: Secrets in ENV, ARG, or COPY .env
+  language: [docker]
+  frameworks: [plain]
+  category: security
+  severity: blocker
+  cwe: [CWE-798]
+  summary: Values passed to `ENV` or `ARG` are preserved in every image layer and visible in `docker inspect`. Copying a `.env` file bakes secrets into the image. Inject secrets at runtime via environment variables or a secrets manager; use Docker BuildKit secrets for build-time credentials.
+  skill_line: Never put secrets in ENV/ARG/COPY; inject at runtime via env vars or use BuildKit secrets.
+  bad: |
+    ARG API_KEY=sk-live-abc123
+    ENV STRIPE_KEY=$API_KEY
+    COPY .env /app/.env
+  good: |
+    # Build: docker build --secret id=apikey,src=./secret.txt .
+    # Runtime: docker run -e STRIPE_KEY=$STRIPE_KEY my-app
+  detect:
+    - { tool: betterleaks, rule: generic-api-key }
+  prevent_in_skill: true
+  references:
+    - https://cwe.mitre.org/data/definitions/798.html
+
+- id: AP-DOCKER-004
+  title: curl piped to shell in RUN, or missing pipefail
+  language: [docker]
+  frameworks: [plain]
+  category: security
+  severity: blocker
+  cwe: []
+  summary: A `RUN` instruction that downloads and immediately executes a script bakes an unverified external dependency into the image. Even without piping to shell, a multi-command `RUN` without `set -o pipefail` can silently succeed when an intermediate command fails.
+  skill_line: Never pipe download to shell in RUN; add `set -o pipefail` before any pipe in RUN.
+  bad: |
+    RUN curl -sSL https://install.example.com/script.sh | sh
+    RUN wget -qO- example.com/setup | bash
+  good: |
+    # Download, verify checksum, then execute:
+    RUN curl -sSLo setup.sh https://example.com/setup.sh \
+      && echo "abc123  setup.sh" | sha256sum -c \
+      && sh setup.sh
+  detect:
+    - { tool: opengrep, rule: slopguard.docker.curl-pipe-shell }
+    - { tool: hadolint, rule: DL4006 }
+  prevent_in_skill: true
+  references: []
+
+- id: AP-DOCKER-005
+  title: Build tools or dev dependencies in the final image
+  language: [docker]
+  frameworks: [plain]
+  category: maintainability
+  severity: warn
+  cwe: []
+  summary: Installing compilers, package managers, or test frameworks in the final production image bloats image size and increases the attack surface. Use a multi-stage build to compile in a builder stage and copy only the final artifact into a minimal runtime image.
+  skill_line: Use multi-stage builds; copy only the compiled artifact into the final minimal image.
+  bad: |
+    FROM node:20
+    RUN npm install        # dev deps included
+    COPY . .
+    RUN npm run build
+    CMD ["node", "dist/server.js"]
+  good: |
+    FROM node:20 AS builder
+    COPY package*.json ./; RUN npm ci
+    COPY . .; RUN npm run build
+    FROM node:20-alpine AS runtime
+    COPY --from=builder /app/dist /app/dist
+    USER node
+    CMD ["node", "/app/dist/server.js"]
+  detect: []
+  prevent_in_skill: true
+  references: []
+
+- id: AP-CI-001
+  title: GitHub Actions steps pinned to a tag instead of a full SHA
+  language: [github-actions]
+  frameworks: [plain]
+  category: security
+  severity: blocker
+  cwe: []
+  summary: Pinning to a version tag like `actions/checkout@v4` is mutable — the tag can be moved to point at a different commit, as happened in the 2026 Trivy supply-chain incident. Pin every `uses:` to the full commit SHA to guarantee immutability.
+  skill_line: Pin every `uses:` to the full commit SHA (e.g. `actions/checkout@abc123...`).
+  bad: |
+    - uses: actions/checkout@v4
+  good: |
+    - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+  detect:
+    - { tool: zizmor, rule: unpinned-uses }
+  prevent_in_skill: true
+  references: []
+
+- id: AP-CI-002
+  title: pull_request_target with checkout of PR code
+  language: [github-actions]
+  frameworks: [plain]
+  category: security
+  severity: blocker
+  cwe: []
+  summary: Workflows triggered by `pull_request_target` run with write access to the base repository. Checking out the PR branch in this context executes attacker-controlled code with elevated permissions. Use `pull_request` (read-only) for untrusted code, or isolate the privileged steps in a separate workflow.
+  skill_line: Never check out PR code inside a `pull_request_target` workflow; use `pull_request` instead.
+  bad: |
+    on: pull_request_target
+    steps:
+      - uses: actions/checkout@…
+        with: { ref: ${{ github.event.pull_request.head.sha }} }
+  good: |
+    on: pull_request  # read-only, safe for untrusted forks
+    steps:
+      - uses: actions/checkout@abc123…
+  detect:
+    - { tool: zizmor, rule: dangerous-triggers }
+  prevent_in_skill: true
+  references: []
+
+- id: AP-CI-003
+  title: User-controlled data interpolated into run scripts
+  language: [github-actions]
+  frameworks: [plain]
+  category: security
+  severity: blocker
+  cwe: []
+  summary: Using `${{ github.event.* }}` directly inside a `run:` block allows an attacker to inject shell commands through a pull request title, issue comment, or branch name. Pass event data through an environment variable set in the `env:` block, which is not evaluated by the shell.
+  skill_line: Pass event data via `env:` variables in run steps; never interpolate `${{ }}` into `run:`.
+  bad: |
+    run: echo "Branch ${{ github.head_ref }}"
+  good: |
+    env:
+      BRANCH: ${{ github.head_ref }}
+    run: echo "Branch $BRANCH"
+  detect:
+    - { tool: zizmor, rule: template-injection }
+  prevent_in_skill: true
+  references: []
+
+- id: AP-CI-004
+  title: Missing or overly broad workflow permissions
+  language: [github-actions]
+  frameworks: [plain]
+  category: security
+  severity: error
+  cwe: []
+  summary: Workflows without a `permissions:` block inherit the repository default, which often includes write access to the entire repository. Declare the minimum permissions each job needs at the job or workflow level.
+  skill_line: Declare `permissions:` at the top level and restrict each job to the minimum needed.
+  bad: |
+    on: push
+    jobs:
+      build:
+        runs-on: ubuntu-latest
+        # no permissions block — inherits repository defaults
+  good: |
+    permissions:
+      contents: read
+    jobs:
+      build:
+        permissions: { contents: read, packages: write }
+  detect:
+    - { tool: zizmor, rule: excessive-permissions }
+  prevent_in_skill: true
+  references: []
+
+- id: AP-CI-005
+  title: persist-credentials on checkout in artifact-publishing jobs
+  language: [github-actions]
+  frameworks: [plain]
+  category: security
+  severity: error
+  cwe: []
+  summary: When `persist-credentials` is left at its default (`true`), the Git token is available to subsequent steps. In jobs that build and publish artefacts, this token can be exfiltrated through the artefact contents. Set `persist-credentials: false` unless the job explicitly needs to push with the token.
+  skill_line: Set `persist-credentials: false` on checkout steps in publishing jobs.
+  bad: |
+    - uses: actions/checkout@abc123…
+    # persist-credentials defaults to true
+  good: |
+    - uses: actions/checkout@abc123…
+      with: { persist-credentials: 'false' }
+  detect:
+    - { tool: zizmor, rule: artipacked }
+  prevent_in_skill: false
+  references: []
+
+- id: AP-CI-006
+  title: GitLab CI — images without digest, remote includes, or curl piped to shell
+  language: [gitlab-ci]
+  frameworks: [plain]
+  category: security
+  severity: error
+  cwe: []
+  summary: GitLab CI jobs that pull images without digest, include external YAML without an integrity hash, or execute downloaded scripts in `script:` blocks are vulnerable to supply-chain attacks. Pin images to digests, use `include: { integrity: }`, and verify downloaded scripts before running.
+  skill_line: Pin GitLab CI images to digests; use `include: { integrity: }` for remote includes.
+  bad: |
+    image: ubuntu:latest
+    include:
+      - remote: https://example.com/ci-template.yml
+  good: |
+    image: ubuntu:22.04@sha256:abc123def456...
+    # remote includes with integrity verification only
+  detect:
+    - { tool: opengrep, rule: slopguard.gitlab.image-without-digest }
+    - { tool: opengrep, rule: slopguard.gitlab.include-remote }
+  prevent_in_skill: true
+  references: []
+
+# ──────────────────────────────────────────────────────────────────────
+# §8.8 Agent-discipline rules (always-on, enforced by pre-write/pre-bash policies)
+# ──────────────────────────────────────────────────────────────────────
+
+- id: AP-AGENT-001
+  title: Linter suppression comment without a reason
+  language: [agent]
+  frameworks: []
+  category: agent
+  severity: blocker
+  cwe: []
+  summary: Adding a suppression comment (nolint, noqa, @ts-ignore, phpstan-ignore, etc.) without a substantive reason hides a real finding without documenting why it is acceptable. Always include at least 10 characters of justification.
+  skill_line: Suppression comments require ≥10-char justification; bare suppressions are blocked pre-write.
+  bad: |
+    //nolint:gosec
+    # noqa
+  good: |
+    //nolint:gosec // reason: value is a fixed compile-time constant, not user input
+    # noqa: S608 -- reason: raw SQL used only in internal migration script
+  detect: []
+  prevent_in_skill: true
+  references: []
+
+- id: AP-AGENT-002
+  title: Lowering tool thresholds or growing lint baselines
+  language: [agent]
+  frameworks: []
+  category: agent
+  severity: error
+  cwe: []
+  summary: Reducing the PHPStan level, adding entries to a Psalm or ESLint baseline, or disabling linter rules to make the build green is treating the symptom, not the cause. Each such change must be explicitly approved by a human reviewer.
+  skill_line: Tool threshold reductions and baseline additions require human review; do not change them to clear findings.
+  bad: |
+    # Lowering phpstan level from 8 to 5 to suppress type errors
+    # Adding 20 new entries to phpstan-baseline.neon
+  good: |
+    # Fix the actual code issue; if a suppression is needed, document why with a human reviewer
+  detect: []
+  prevent_in_skill: true
+  references: []
+
+- id: AP-AGENT-003
+  title: Disabling or deleting tests to make CI pass
+  language: [agent]
+  frameworks: []
+  category: agent
+  severity: error
+  cwe: []
+  summary: Skipping, marking as incomplete, or deleting test cases to clear a failing build hides real defects. Tests must be fixed by correcting the underlying code, not by removing the test.
+  skill_line: Fix failing tests by correcting the code; never skip, mark incomplete, or delete tests to clear CI.
+  bad: |
+    it.skip('should validate token expiry')
+    @pytest.mark.skip(reason="flaky")
+  good: |
+    # Fix the implementation so the test passes; remove the test only if the requirement changed
+  detect: []
+  prevent_in_skill: true
+  references: []
+
+- id: AP-AGENT-004
+  title: Installing new dependencies without verification; curl piped to shell
+  language: [agent]
+  frameworks: []
+  category: agent
+  severity: blocker
+  cwe: []
+  summary: Adding a new package without verifying the maintainer, checking for typosquatting, and confirming the license introduces supply-chain risk. Piping a downloaded script directly to a shell executes unverified remote code. Both actions require explicit user confirmation.
+  skill_line: All new dependency installs require confirmation; `curl | sh` is always blocked.
+  bad: |
+    npm install some-obscure-package@latest
+    curl https://install.example.com/setup.sh | bash
+  good: |
+    # Ask the user; verify package name, maintainer, license, and age before installing
+  detect: []
+  prevent_in_skill: true
+  references: []
+
+- id: AP-AGENT-005
+  title: Reading credential files or private keys
+  language: [agent]
+  frameworks: []
+  category: agent
+  severity: blocker
+  cwe: [CWE-522]
+  summary: Reading `.env` files, private keys, AWS credentials, kubeconfig, or any file in a secrets directory exposes production credentials that should never enter the model context. These reads are denied unconditionally.
+  skill_line: Reading `.env*`, private keys, and credential files is denied; find values via safe alternatives.
+  bad: |
+    Read(".env")
+    cat ~/.aws/credentials
+    cat id_rsa
+  good: |
+    # Use environment variable names or placeholder values; secrets stay out of context
+  detect: []
+  prevent_in_skill: true
+  references:
+    - https://cwe.mitre.org/data/definitions/522.html
+
+- id: AP-AGENT-006
+  title: Hard-coded real credentials written to files
+  language: [agent]
+  frameworks: []
+  category: agent
+  severity: blocker
+  cwe: [CWE-798]
+  summary: Writing an actual credential value into source code "temporarily for testing" commits it to the file and potentially to version history. Use placeholder values in examples and load real values from environment variables at runtime.
+  skill_line: Use placeholder values in code examples; real credentials must never appear in written files.
+  bad: |
+    DATABASE_URL=postgres://admin:realpassword@prod-db:5432/app
+  good: |
+    DATABASE_URL=postgres://user:${DB_PASSWORD}@db:5432/app
+  detect: []
+  prevent_in_skill: true
+  references:
+    - https://cwe.mitre.org/data/definitions/798.html
+
+- id: AP-AGENT-007
+  title: Edits outside the targeted diff scope
+  language: [agent]
+  frameworks: []
+  category: agent
+  severity: warn
+  cwe: []
+  summary: Reformatting whole files, refactoring unrelated functions, or touching lines outside the failing hunks while fixing a specific issue creates noise in code review and may introduce regressions. Keep changes minimal and scoped to what the task requires.
+  skill_line: Restrict edits to the lines required by the task; do not reformat or refactor out of scope.
+  bad: |
+    # Reformatting an entire 500-line file while fixing a single bug
+    # Renaming variables throughout a file while adding a new feature
+  good: |
+    # Change only the lines that directly address the requirement; leave surrounding code unchanged
+  detect: []
+  prevent_in_skill: true
+  references: []
+
+- id: AP-AGENT-008
+  title: Using framework or library APIs without consulting current documentation
+  language: [agent]
+  frameworks: []
+  category: agent
+  severity: warn
+  cwe: []
+  summary: Framework APIs change between versions; using outdated method names or patterns from training data introduces bugs that are hard to diagnose. Before writing code against a framework, confirm the current API using Context7 documentation lookup.
+  skill_line: Before calling any framework API, verify the version-specific docs via Context7.
+  bad: |
+    # Writing Laravel 10 code in a project running Laravel 11 without checking migration guide
+  good: |
+    # mcp__context7__resolve-library-id("laravel") → mcp__context7__get-library-docs(id, "routing")
+  detect: []
+  prevent_in_skill: true
+  references: []
+
+- id: AP-AGENT-009
+  title: New dependency pinned to @latest or a floating version range
+  language: [agent]
+  frameworks: []
+  category: agent
+  severity: error
+  cwe: []
+  summary: Specifying `@latest` or a loose range like `^1.0.0` means the installed version varies over time and across machines, breaking reproducibility and opening a window for supply-chain attacks when a new release is published. Pin every dependency to an explicit version in the lockfile.
+  skill_line: Pin new dependencies to an explicit stable version; never use `@latest` or loose ranges.
+  bad: |
+    npm install some-package@latest
+    go get github.com/example/lib@latest
+  good: |
+    npm install some-package@3.2.1
+    go get github.com/example/lib@v3.2.1
+  detect: []
+  prevent_in_skill: true
+  references: []
+
+# ──────────────────────────────────────────────────────────────────────
+# §8.10 Tier 2 — JVM (Java + Kotlin)
+# ──────────────────────────────────────────────────────────────────────
+
+- id: AP-JVM-SEC-001
+  title: JDBC query built by string concatenation or formatting
+  language: [java, kotlin]
+  frameworks: [plain, spring, quarkus, jooq]
+  category: security
+  severity: blocker
+  cwe: [CWE-89]
+  summary: Building a SQL string by concatenating user-supplied values and executing it with `Statement.executeQuery` or `Connection.createStatement` allows an attacker to alter the query structure. Always use `PreparedStatement` with `?` placeholders or a typed query builder.
+  skill_line: Use `PreparedStatement` with `?` placeholders; never concatenate user data into SQL strings.
+  bad: |
+    String sql = "SELECT * FROM users WHERE email = '" + email + "'";
+    conn.createStatement().executeQuery(sql);
+  good: |
+    PreparedStatement ps = conn.prepareStatement("SELECT * FROM users WHERE email = ?");
+    ps.setString(1, email);
+    ResultSet rs = ps.executeQuery();
+  detect:
+    - { tool: opengrep, rule: slopguard.jvm.jdbc-string-concat }
+  prevent_in_skill: true
+  references:
+    - https://cwe.mitre.org/data/definitions/89.html
+
+- id: AP-JVM-SEC-002
+  title: Java native deserialization with ObjectInputStream on external data
+  language: [java, kotlin]
+  frameworks: [plain]
+  category: security
+  severity: blocker
+  cwe: [CWE-502]
+  summary: Deserializing attacker-controlled bytes with `ObjectInputStream` can trigger gadget chains that execute arbitrary code via magic methods. Replace native serialization with JSON, Protocol Buffers, or a safe alternative; if native deserialization is unavoidable, use a `SerialKiller` filter.
+  skill_line: Avoid `ObjectInputStream` on external data; use JSON/Protobuf or a deserialization filter.
+  bad: |
+    ObjectInputStream ois = new ObjectInputStream(request.getInputStream());
+    MyObject obj = (MyObject) ois.readObject();
+  good: |
+    MyObject obj = objectMapper.readValue(request.getInputStream(), MyObject.class);
+  detect:
+    - { tool: opengrep, rule: slopguard.jvm.object-deserialize }
+  prevent_in_skill: true
+  references:
+    - https://cwe.mitre.org/data/definitions/502.html
+
+- id: AP-JVM-SEC-003
+  title: Runtime.exec or ProcessBuilder with user-supplied string
+  language: [java, kotlin]
+  frameworks: [plain]
+  category: security
+  severity: blocker
+  cwe: [CWE-78]
+  summary: Passing a user-controlled value to `Runtime.exec(String)` invokes a shell that interprets metacharacters. Use the array form `Runtime.exec(String[])` or `ProcessBuilder` with each argument as a separate element so no shell is invoked.
+  skill_line: Use `ProcessBuilder(List.of("prog", arg1, arg2))` with separate args; never exec a string with user data.
+  bad: |
+    Runtime.getRuntime().exec("convert " + userFile + " output.png");
+  good: |
+    new ProcessBuilder("convert", userFile, "output.png").start();
+  detect:
+    - { tool: opengrep, rule: slopguard.jvm.runtime-exec-concat }
+  prevent_in_skill: true
+  references:
+    - https://cwe.mitre.org/data/definitions/78.html
+
+- id: AP-JVM-SEC-004
+  title: java.util.Random used for security tokens or session IDs
+  language: [java, kotlin]
+  frameworks: [plain]
+  category: security
+  severity: blocker
+  cwe: [CWE-338]
+  summary: `java.util.Random` and `Math.random()` are pseudo-random generators with a predictable seed. Use `java.security.SecureRandom` for any value that must not be guessable, such as tokens, nonces, or session identifiers.
+  skill_line: Use `SecureRandom` for tokens and session IDs; `java.util.Random` is for simulations only.
+  bad: |
+    String token = Long.toHexString(new Random().nextLong());
+  good: |
+    byte[] bytes = new byte[32];
+    new SecureRandom().nextBytes(bytes);
+    String token = HexFormat.of().formatHex(bytes);
+  detect:
+    - { tool: opengrep, rule: slopguard.jvm.insecure-random }
+  prevent_in_skill: true
+  references:
+    - https://cwe.mitre.org/data/definitions/338.html
+
+- id: AP-JVM-SEC-005
+  title: TrustManager that accepts all certificates
+  language: [java, kotlin]
+  frameworks: [plain]
+  category: security
+  severity: blocker
+  cwe: [CWE-295]
+  summary: Implementing `TrustManager` with an empty `checkServerTrusted` method disables TLS certificate validation, exposing all connections to man-in-the-middle attacks. Use the default `TrustManagerFactory` or supply a properly loaded `KeyStore`.
+  skill_line: Never implement a no-op TrustManager; use the default TrustManagerFactory with a valid KeyStore.
+  bad: |
+    X509TrustManager tm = new X509TrustManager() {
+      public void checkServerTrusted(X509Certificate[] c, String a) { /* accepts all */ }
+    };
+  good: |
+    TrustManagerFactory tmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
+    tmf.init((KeyStore) null); // loads default JVM trust store
+  detect: []
+  prevent_in_skill: true
+  references:
+    - https://cwe.mitre.org/data/definitions/295.html
+
+- id: AP-JVM-SEC-006
+  title: Jackson polymorphic deserialization with enableDefaultTyping
+  language: [java, kotlin]
+  frameworks: [spring, plain]
+  category: security
+  severity: blocker
+  cwe: [CWE-502]
+  summary: Calling `enableDefaultTyping` or using `@JsonTypeInfo` with external class names allows an attacker to supply arbitrary class names in JSON, which Jackson then instantiates — enabling remote code execution. Use specific subtypes or a safelist.
+  skill_line: Never call `enableDefaultTyping`; use a registered subtype safelist with `@JsonSubTypes`.
+  bad: |
+    mapper.enableDefaultTyping(ObjectMapper.DefaultTyping.NON_FINAL);
+  good: |
+    @JsonTypeInfo(use = JsonTypeInfo.Id.NAME)
+    @JsonSubTypes({ @JsonSubTypes.Type(value = Cat.class, name = "cat") })
+    abstract class Animal {}
+  detect: []
+  prevent_in_skill: true
+  references:
+    - https://cwe.mitre.org/data/definitions/502.html
+
+- id: AP-JVM-PERF-001
+  title: N+1 queries — loading associations in a loop without eager fetch
+  language: [java, kotlin]
+  frameworks: [spring, hibernate, quarkus]
+  category: performance
+  severity: error
+  cwe: []
+  summary: Accessing a JPA/Hibernate relationship inside a loop issues one SELECT per entity, multiplying database round-trips by the result set size. Use JOIN FETCH in JPQL, entity graphs, or a `@BatchSize` annotation to fetch associations in bulk.
+  skill_line: Use `JOIN FETCH` or an entity graph to eager-load associations; avoid lazy access in loops.
+  bad: |
+    for (Order o : orderRepo.findAll()) {
+        System.out.println(o.getCustomer().getName()); // N queries
+    }
+  good: |
+    List<Order> orders = em.createQuery(
+        "SELECT o FROM Order o JOIN FETCH o.customer", Order.class).getResultList();
+  detect: []
+  prevent_in_skill: true
+  references: []
+
+- id: AP-JVM-MAINT-001
+  title: Catching Exception or Throwable and swallowing it
+  language: [java, kotlin]
+  frameworks: [plain]
+  category: maintainability
+  severity: error
+  cwe: [CWE-390]
+  summary: A catch block for `Exception` or `Throwable` with an empty body or a bare log discards the error completely. Catch the specific exception type you expect, log with full context, and either recover or rethrow to propagate the failure.
+  skill_line: Catch the specific exception; log with context and rethrow or handle; never swallow silently.
+  bad: |
+    try { riskyOperation(); } catch (Exception e) { /* ignored */ }
+  good: |
+    try {
+        riskyOperation();
+    } catch (IOException e) {
+        log.error("Operation failed: {}", e.getMessage(), e);
+        throw new ServiceException("operation failed", e);
+    }
+  detect: []
+  prevent_in_skill: true
+  references:
+    - https://cwe.mitre.org/data/definitions/390.html
+
+- id: AP-JVM-MAINT-002
+  title: Calling System.exit or throwing RuntimeException from library code
+  language: [java, kotlin]
+  frameworks: [plain]
+  category: maintainability
+  severity: error
+  cwe: []
+  summary: Library code that calls `System.exit` takes control away from the application and makes unit testing impossible. Throw a checked exception or a domain-specific runtime exception and let the application entry point decide how to handle it.
+  skill_line: Throw typed exceptions from library code; never call `System.exit` outside `main`.
+  bad: |
+    public Config load(String path) {
+        if (!file.exists()) { System.exit(1); }
+    }
+  good: |
+    public Config load(String path) throws ConfigException {
+        if (!file.exists()) { throw new ConfigException("Config not found: " + path); }
+    }
+  detect: []
+  prevent_in_skill: true
+  references: []
+
+# ──────────────────────────────────────────────────────────────────────
+# §8.10 Tier 2 — C#
+# ──────────────────────────────────────────────────────────────────────
+
+- id: AP-CS-SEC-001
+  title: SQL built by string interpolation into SqlCommand
+  language: [csharp]
+  frameworks: [plain, aspnetcore, entityframework]
+  category: security
+  severity: blocker
+  cwe: [CWE-89]
+  summary: Embedding a C# interpolated string or concatenated value into a `SqlCommand.CommandText` allows attackers to alter the query structure. Use `SqlCommand` parameters or a parameterized ORM query.
+  skill_line: Use `SqlCommand` parameters or EF parameterized queries; never interpolate into `CommandText`.
+  bad: |
+    cmd.CommandText = $"SELECT * FROM Users WHERE Email = '{email}'";
+  good: |
+    cmd.CommandText = "SELECT * FROM Users WHERE Email = @email";
+    cmd.Parameters.AddWithValue("@email", email);
+  detect:
+    - { tool: opengrep, rule: slopguard.cs.sql-string-interpolation }
+  prevent_in_skill: true
+  references:
+    - https://cwe.mitre.org/data/definitions/89.html
+
+- id: AP-CS-SEC-002
+  title: BinaryFormatter or NetDataContractSerializer deserialization
+  language: [csharp]
+  frameworks: [plain]
+  category: security
+  severity: blocker
+  cwe: [CWE-502]
+  summary: Both `BinaryFormatter` and `NetDataContractSerializer` are vulnerable to deserialization gadget attacks when deserialising attacker-controlled data. Microsoft deprecated `BinaryFormatter` in .NET 5 and removed it in .NET 9. Use `System.Text.Json` or `MessagePack` with an explicit type allowlist.
+  skill_line: Replace `BinaryFormatter`/`NetDataContractSerializer` with `System.Text.Json` or MessagePack.
+  bad: |
+    var formatter = new BinaryFormatter();
+    var obj = formatter.Deserialize(stream);
+  good: |
+    var obj = JsonSerializer.Deserialize<MyType>(stream);
+  detect:
+    - { tool: opengrep, rule: slopguard.cs.binary-formatter }
+  prevent_in_skill: true
+  references:
+    - https://cwe.mitre.org/data/definitions/502.html
+
+- id: AP-CS-SEC-003
+  title: Process.Start with user-supplied string command
+  language: [csharp]
+  frameworks: [plain, aspnetcore]
+  category: security
+  severity: blocker
+  cwe: [CWE-78]
+  summary: Calling `Process.Start` with a command string that includes user input enables command injection. Pass arguments as a separate string, not embedded in the file name, and avoid invoking a shell (`cmd.exe /c`) with user data.
+  skill_line: Set `ProcessStartInfo.Arguments` separately; never embed user input in the FileName.
+  bad: |
+    Process.Start("cmd.exe", $"/c convert {userFile} output.png");
+  good: |
+    var psi = new ProcessStartInfo("convert") { Arguments = $"\"{userFile}\" output.png" };
+    Process.Start(psi);
+  detect:
+    - { tool: opengrep, rule: slopguard.cs.process-start-user-input }
+  prevent_in_skill: true
+  references:
+    - https://cwe.mitre.org/data/definitions/78.html
+
+- id: AP-CS-SEC-004
+  title: Weak RNG — new Random() for security-sensitive values
+  language: [csharp]
+  frameworks: [plain]
+  category: security
+  severity: blocker
+  cwe: [CWE-338]
+  summary: `System.Random` is deterministic and predictable. For tokens, session identifiers, and cryptographic nonces, use `RandomNumberGenerator.GetBytes` (or `RandomNumberGenerator.GetHexString` in .NET 8+).
+  skill_line: Use `RandomNumberGenerator.GetBytes` for tokens; `System.Random` is for simulations only.
+  bad: |
+    var token = new Random().Next().ToString("x8");
+  good: |
+    var bytes = RandomNumberGenerator.GetBytes(32);
+    var token = Convert.ToHexString(bytes).ToLower();
+  detect: []
+  prevent_in_skill: true
+  references:
+    - https://cwe.mitre.org/data/definitions/338.html
+
+- id: AP-CS-SEC-005
+  title: Missing security headers in ASP.NET Core controllers
+  language: [csharp]
+  frameworks: [aspnetcore]
+  category: security
+  severity: warn
+  cwe: [CWE-693]
+  summary: ASP.NET Core does not add security headers (CSP, X-Frame-Options, HSTS) by default. Add a security header middleware early in the pipeline to apply them to every response.
+  skill_line: Add `NWebsec` or a custom middleware to set CSP, X-Frame-Options, and HSTS.
+  bad: |
+    app.UseRouting();
+    app.MapControllers();
+    // No security header middleware
+  good: |
+    app.UseHsts();
+    app.UseXfo(x => x.Deny());
+    app.UseCsp(opt => opt.DefaultSources(s => s.Self()));
+  detect: []
+  prevent_in_skill: true
+  references:
+    - https://cwe.mitre.org/data/definitions/693.html
+
+- id: AP-CS-PERF-001
+  title: async void methods
+  language: [csharp]
+  frameworks: [plain, aspnetcore]
+  category: maintainability
+  severity: error
+  cwe: []
+  summary: An `async void` method cannot be awaited; any exception it throws goes unobserved and typically crashes the process. Only event handlers may use `async void`. All other async methods must return `Task` or `Task<T>`.
+  skill_line: Use `async Task` (not `async void`) for all async methods except event handlers.
+  bad: |
+    public async void ProcessAsync() { await DoWork(); }
+  good: |
+    public async Task ProcessAsync() { await DoWork(); }
+  detect: []
+  prevent_in_skill: true
+  references: []
+
+- id: AP-CS-MAINT-001
+  title: Catching generic Exception and swallowing it
+  language: [csharp]
+  frameworks: [plain]
+  category: maintainability
+  severity: error
+  cwe: [CWE-390]
+  summary: An empty catch block for `Exception` silently discards all errors including ThreadAbortException and OutOfMemoryException. Catch the narrowest type you can handle, log with context, and rethrow or propagate.
+  skill_line: Catch the specific exception type; log and rethrow; never swallow `Exception` silently.
+  bad: |
+    try { Process(); } catch (Exception) { }
+  good: |
+    try {
+        Process();
+    } catch (IOException ex) {
+        logger.LogError(ex, "IO failure during processing");
+        throw;
+    }
+  detect: []
+  prevent_in_skill: true
+  references:
+    - https://cwe.mitre.org/data/definitions/390.html
+
+- id: AP-CS-MAINT-002
+  title: String concatenation in a loop
+  language: [csharp]
+  frameworks: [plain]
+  category: performance
+  severity: warn
+  cwe: []
+  summary: Concatenating strings with `+` inside a loop creates O(n²) allocations because each iteration allocates a new string. Use `StringBuilder` for loop-based construction or `string.Join` / LINQ `Aggregate` for combining collections.
+  skill_line: Use `StringBuilder` or `string.Join` to concatenate strings in loops.
+  bad: |
+    string result = "";
+    foreach (var item in items) { result += item + ", "; }
+  good: |
+    var sb = new StringBuilder();
+    foreach (var item in items) { sb.Append(item).Append(", "); }
+    string result = sb.ToString();
+  detect: []
+  prevent_in_skill: true
+  references: []
+
+# ──────────────────────────────────────────────────────────────────────
+# §8.10 Tier 2 — Ruby
+# ──────────────────────────────────────────────────────────────────────
+
+- id: AP-RB-SEC-001
+  title: eval, send, or constantize with user-supplied input
+  language: [ruby]
+  frameworks: [rails, plain]
+  category: security
+  severity: blocker
+  cwe: [CWE-95]
+  summary: Calling `eval`, `send`, `public_send`, or `constantize` with a user-supplied string executes arbitrary Ruby code or dispatches to arbitrary methods. Use an explicit allowlist of permitted method names or class names.
+  skill_line: Never `eval`/`send`/`constantize` with user input; use an explicit allowlist.
+  bad: |
+    klass = params[:type].constantize
+    klass.send(params[:action])
+  good: |
+    ALLOWED = { 'export' => ExportJob, 'import' => ImportJob }.freeze
+    klass = ALLOWED.fetch(params[:type]) { raise ArgumentError }
+  detect:
+    - { tool: opengrep, rule: slopguard.ruby.eval-user-input }
+  prevent_in_skill: true
+  references:
+    - https://cwe.mitre.org/data/definitions/95.html
+
+- id: AP-RB-SEC-002
+  title: YAML.load without SafeLoader / Psych safe_load
+  language: [ruby]
+  frameworks: [rails, plain]
+  category: security
+  severity: blocker
+  cwe: [CWE-502]
+  summary: Ruby's `YAML.load` uses the Psych full-trust parser by default, allowing the `!ruby/object` tag to instantiate arbitrary Ruby objects. This enables deserialization gadget attacks. Always use `YAML.safe_load` which restricts types to primitive Ruby objects.
+  skill_line: Always use `YAML.safe_load` instead of `YAML.load` on external data.
+  bad: |
+    config = YAML.load(params[:config])
+  good: |
+    config = YAML.safe_load(params[:config])
+  detect: []
+  prevent_in_skill: true
+  references:
+    - https://cwe.mitre.org/data/definitions/502.html
+
+- id: AP-RB-SEC-003
+  title: Mass assignment without explicit permit in Rails
+  language: [ruby]
+  frameworks: [rails]
+  category: security
+  severity: error
+  cwe: [CWE-915]
+  summary: Passing `params` directly to `create` or `update` without calling `permit` allows clients to set any attribute, including administrative flags and foreign keys. Always use `params.require(:model).permit(:field1, :field2)`.
+  skill_line: Always use `params.require(:resource).permit(:allowed_fields)` in Rails controllers.
+  bad: |
+    User.create(params[:user])
+  good: |
+    User.create(params.require(:user).permit(:name, :email))
+  detect: []
+  prevent_in_skill: true
+  references:
+    - https://cwe.mitre.org/data/definitions/915.html
+
+- id: AP-RB-SEC-004
+  title: Shell injection via string interpolation in backticks or system
+  language: [ruby]
+  frameworks: [rails, plain]
+  category: security
+  severity: blocker
+  cwe: [CWE-78]
+  summary: Embedding user-controlled values in backtick expressions or `system(string)` allows shell metacharacter injection. Use `Open3.capture2e` with an explicit argument array so the shell is never invoked.
+  skill_line: Use `Open3.capture2e('prog', arg1, arg2)` with separate args; never interpolate into backticks.
+  bad: |
+    `convert #{params[:file]} output.png`
+    system("rm -rf #{path}")
+  good: |
+    out, status = Open3.capture2e('convert', params[:file], 'output.png')
+  detect:
+    - { tool: opengrep, rule: slopguard.ruby.shell-injection-interpolation }
+  prevent_in_skill: true
+  references:
+    - https://cwe.mitre.org/data/definitions/78.html
+
+- id: AP-RB-SEC-005
+  title: SQL string interpolation in ActiveRecord queries
+  language: [ruby]
+  frameworks: [rails]
+  category: security
+  severity: blocker
+  cwe: [CWE-89]
+  summary: Interpolating variables into `where`, `find_by_sql`, or `execute` strings allows SQL injection. Use the hash syntax or the `?` placeholder form to let ActiveRecord parameterise the query.
+  skill_line: Use `where(email: email)` or `where('email = ?', email)`; never interpolate into `where`.
+  bad: |
+    User.where("email = '#{params[:email]}'")
+  good: |
+    User.where(email: params[:email])
+    User.where('email = ?', params[:email])
+  detect: []
+  prevent_in_skill: true
+  references:
+    - https://cwe.mitre.org/data/definitions/89.html
+
+- id: AP-RB-SEC-006
+  title: SecureRandom not used for security tokens
+  language: [ruby]
+  frameworks: [rails, plain]
+  category: security
+  severity: error
+  cwe: [CWE-330]
+  summary: Using `rand`, `srand`, or time-based values for tokens or identifiers produces predictable output. Ruby's `SecureRandom` draws from the OS CSPRNG and is appropriate for tokens, nonces, and password reset links.
+  skill_line: Use `SecureRandom.hex(32)` or `SecureRandom.urlsafe_base64` for all security tokens.
+  bad: |
+    token = rand(10 ** 20).to_s(36)
+  good: |
+    token = SecureRandom.hex(32)
+  detect: []
+  prevent_in_skill: true
+  references:
+    - https://cwe.mitre.org/data/definitions/330.html
+
+- id: AP-RB-MAINT-001
+  title: rescue Exception instead of specific error type
+  language: [ruby]
+  frameworks: [rails, plain]
+  category: maintainability
+  severity: error
+  cwe: [CWE-396]
+  summary: Rescuing `Exception` catches everything including `SignalException::Interrupt` and `SystemExit`, interfering with normal Ruby process lifecycle. Rescue `StandardError` at the widest appropriate scope and specific subtypes wherever possible.
+  skill_line: Rescue `StandardError` at most; prefer specific exception types; log before retrying or re-raising.
+  bad: |
+    begin
+      risky_operation
+    rescue Exception => e
+      # swallows Ctrl+C and SystemExit
+    end
+  good: |
+    begin
+      risky_operation
+    rescue NetworkError => e
+      logger.error("Network failure: #{e.message}")
+      raise
+    end
+  detect: []
+  prevent_in_skill: true
+  references:
+    - https://cwe.mitre.org/data/definitions/396.html
+
+- id: AP-RB-MAINT-002
+  title: Missing frozen_string_literal magic comment
+  language: [ruby]
+  frameworks: [rails, plain]
+  category: performance
+  severity: warn
+  cwe: []
+  summary: Without `# frozen_string_literal: true`, every string literal creates a new mutable object each time the line is executed. Freezing string literals eliminates these allocations for constants used as hash keys, method selectors, or repeated conditions.
+  skill_line: Add `# frozen_string_literal: true` at the top of every Ruby file.
+  bad: |
+    STATUS_ACTIVE = "active"     # new String object each time this constant is read
+  good: |
+    # frozen_string_literal: true
+    STATUS_ACTIVE = "active"     # interned; no allocation after the first
+  detect: []
+  prevent_in_skill: false
+  references: []
+
+# ──────────────────────────────────────────────────────────────────────
+# §8.10 Tier 2 — Rust
+# ──────────────────────────────────────────────────────────────────────
+
+- id: AP-RS-SEC-001
+  title: unsafe block without a safety comment
+  language: [rust]
+  frameworks: [plain]
+  category: security
+  severity: error
+  cwe: []
+  summary: An `unsafe` block bypasses Rust's memory-safety guarantees. Every `unsafe` block must be accompanied by a `// SAFETY:` comment that explains the invariants that make it sound — who is responsible for upholding those invariants and why.
+  skill_line: Every `unsafe` block must have a `// SAFETY:` comment explaining the soundness invariant.
+  bad: |
+    unsafe {
+        let ptr = data.as_ptr().add(offset);
+        *ptr
+    }
+  good: |
+    // SAFETY: offset is validated to be within [0, data.len()) before this call
+    unsafe {
+        let ptr = data.as_ptr().add(offset);
+        *ptr
+    }
+  detect:
+    - { tool: opengrep, rule: slopguard.rs.unsafe-block }
+  prevent_in_skill: true
+  references: []
+
+- id: AP-RS-SEC-002
+  title: unwrap or expect in library code without error context
+  language: [rust]
+  frameworks: [plain]
+  category: maintainability
+  severity: warn
+  cwe: []
+  summary: Calling `.unwrap()` or `.expect("message")` in library functions panics on `None` or `Err`, taking control away from the caller and making error handling impossible for the consumer. Return `Result` or `Option` and propagate errors with `?`.
+  skill_line: Return `Result`/`Option` from library functions; use `.unwrap()` only in tests or `main`.
+  bad: |
+    pub fn parse_config(s: &str) -> Config {
+        serde_json::from_str(s).unwrap()  // panics the caller's thread
+    }
+  good: |
+    pub fn parse_config(s: &str) -> Result<Config, serde_json::Error> {
+        serde_json::from_str(s)
+    }
+  detect:
+    - { tool: opengrep, rule: slopguard.rs.unwrap-in-library }
+  prevent_in_skill: true
+  references: []
+
+- id: AP-RS-PERF-001
+  title: Integer arithmetic without overflow protection in library code
+  language: [rust]
+  frameworks: [plain]
+  category: security
+  severity: warn
+  cwe: [CWE-190]
+  summary: In release builds, integer overflow wraps silently in Rust (unlike debug builds which panic). In security-sensitive arithmetic — buffer sizes, offsets, counts — use the `checked_*`, `saturating_*`, or `wrapping_*` family of methods to handle overflow explicitly.
+  skill_line: Use `checked_add`/`checked_mul` for size/offset arithmetic; never rely on silent wrapping.
+  bad: |
+    let total = count * item_size;   // wraps silently in release mode
+    let buf = vec![0u8; total];
+  good: |
+    let total = count.checked_mul(item_size).ok_or(Error::Overflow)?;
+    let buf = vec![0u8; total];
+  detect: []
+  prevent_in_skill: true
+  references:
+    - https://cwe.mitre.org/data/definitions/190.html
+
+- id: AP-RS-MAINT-001
+  title: Serde deserialization without deny_unknown_fields or bound
+  language: [rust]
+  frameworks: [plain]
+  category: security
+  severity: warn
+  cwe: []
+  summary: Without `#[serde(deny_unknown_fields)]`, extra keys in JSON silently pass through, which can cause confusion about what was actually parsed and may bypass schema-level validation. Without `#[serde(bound = "...")]`, the compiler generates overly broad `T: Deserialize` bounds that can be satisfied by unintended types.
+  skill_line: Add `#[serde(deny_unknown_fields)]` to structs that deserialise external input.
+  bad: |
+    #[derive(Deserialize)]
+    struct Config { host: String, port: u16 }  // unknown fields accepted silently
+  good: |
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Config { host: String, port: u16 }
+  detect: []
+  prevent_in_skill: true
+  references: []
+
+- id: AP-RS-MAINT-002
+  title: Missing error context in the ? operator chain
+  language: [rust]
+  frameworks: [plain]
+  category: maintainability
+  severity: warn
+  cwe: []
+  summary: A bare `?` at the end of a function converts the underlying error to the return type but discards the context of where it occurred. Use `.context()`/`.with_context()` from `anyhow` or wrap with a domain-specific error variant to preserve call-site information.
+  skill_line: Add `.context("what was being attempted")` to `?` calls in library code.
+  bad: |
+    fn load(path: &Path) -> Result<Config> {
+        let text = std::fs::read_to_string(path)?;  // no context on failure
+        Ok(serde_json::from_str(&text)?)
+    }
+  good: |
+    fn load(path: &Path) -> Result<Config> {
+        let text = std::fs::read_to_string(path)
+            .with_context(|| format!("reading config at {}", path.display()))?;
+        serde_json::from_str(&text).context("parsing config JSON")
+    }
+  detect: []
+  prevent_in_skill: false
+  references: []
+
+- id: AP-RS-SEC-003
+  title: Dereferencing raw pointers in unsafe blocks without bounds check
+  language: [rust]
+  frameworks: [plain]
+  category: security
+  severity: error
+  cwe: []
+  summary: Dereferencing raw pointers bypasses Rust's borrow checker entirely. The pointer may be null, dangling, or point outside allocated memory. Every raw pointer dereference must be preceded by explicit bounds and validity checks.
+  skill_line: Validate raw pointers before dereferencing; prefer safe references; document the safety invariant.
+  bad: |
+    unsafe {
+        let val = *ptr;  // no null or bounds check
+    }
+  good: |
+    // SAFETY: ptr is non-null and points to a valid T as guaranteed by the caller
+    unsafe {
+        assert!(!ptr.is_null());
+        let val = *ptr;
+    }
+  detect:
+    - { tool: opengrep, rule: slopguard.rs.raw-pointer-deref }
+  prevent_in_skill: true
+  references: []
+
+- id: AP-RS-SEC-004
+  title: mem::transmute without explicit safety justification
+  language: [rust]
+  frameworks: [plain]
+  category: security
+  severity: error
+  cwe: []
+  summary: "`mem::transmute` reinterprets the raw bytes of a value as a different type with no validation, easily producing invalid values (e.g. transmuting an integer to an enum skips discriminant checks). Use safe conversions; when transmute is the only option, document the layout guarantee in a SAFETY comment."
+  skill_line: Avoid `mem::transmute`; use `From`/`Into` or `bytemuck`; document layout guarantees in SAFETY comments.
+  bad: |
+    let x: u64 = 0;
+    let y: f64 = unsafe { mem::transmute(x) }; // no SAFETY comment
+  good: |
+    let x: u64 = 0;
+    // SAFETY: every bit pattern is a valid f64
+    let y: f64 = unsafe { mem::transmute(x) };
+  detect:
+    - { tool: opengrep, rule: slopguard.rs.mem-transmute }
+  prevent_in_skill: true
+  references: []
+
+- id: AP-RS-SEC-005
+  title: str::from_utf8_unchecked on unvalidated byte slices
+  language: [rust]
+  frameworks: [plain]
+  category: security
+  severity: error
+  cwe: [CWE-125]
+  summary: "`str::from_utf8_unchecked` skips the UTF-8 validity check and returns a `&str` from any byte slice, including invalid UTF-8. Subsequent string operations that assume UTF-8 may read beyond intended boundaries or produce incorrect output. Use `str::from_utf8` and propagate the error."
+  skill_line: Use `str::from_utf8(&bytes)?` instead of `from_utf8_unchecked`; propagate the validation error.
+  bad: |
+    let s = unsafe { std::str::from_utf8_unchecked(&bytes) };
+  good: |
+    let s = std::str::from_utf8(&bytes)?;
+  detect:
+    - { tool: opengrep, rule: slopguard.rs.from-utf8-unchecked }
+  prevent_in_skill: true
+  references:
+    - https://cwe.mitre.org/data/definitions/125.html

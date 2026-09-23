@@ -76,8 +76,137 @@ cmd_pre_read() {
 }
 
 # --------------------------------------------------------------------------- #
-# post-write
+# post-write (fast and medium tiers)
 # --------------------------------------------------------------------------- #
+
+# _cmd_post_write_medium — reads hook JSON from stdin (already consumed by
+# hook_input), runs dispatch_medium, and exits 2 when new error/blocker
+# findings are present (asyncRewake).  Advisory mode uses additionalContext.
+# Warn-only findings use additionalContext without exit 2.
+_cmd_post_write_medium() {
+    hook_input
+
+    local tool_name; tool_name="$(hook_field .tool_name)"
+    local file_path=""
+    case "$tool_name" in
+        Write|Edit|MultiEdit)  file_path="$(hook_field .tool_input.file_path)" ;;
+        NotebookEdit)          file_path="$(hook_field .tool_input.notebook_path)" ;;
+        *) exit 0 ;;
+    esac
+
+    [ -n "$file_path" ] || exit 0
+    [ -f "$file_path" ] || exit 0
+
+    local session_id; session_id="$(hook_field .session_id)"
+    local agent_id;   agent_id="$(hook_field .agent_id)"
+    [ -n "$session_id" ] || exit 0
+
+    local enforcement="${CLAUDE_PLUGIN_OPTION_ENFORCEMENT_MODE:-balanced}"
+    local project_dir="${CLAUDE_PROJECT_DIR:-.}"
+
+    local findings_tmp; findings_tmp="$(mktemp "${TMPDIR:-/tmp}/.sg-med-findings.XXXXXX")"
+    trap 'rm -f "${findings_tmp}"' EXIT INT TERM
+
+    dispatch_medium "$file_path" "$session_id" "${agent_id:-}" "$project_dir" "$findings_tmp"
+
+    # Debounced away, no tools apply, or all findings already fingerprinted.
+    [ -s "$findings_tmp" ] || exit 0
+
+    local findings_json total
+    findings_json="$(jq -s '.' "$findings_tmp" 2>/dev/null || printf '[]')"
+    total="$(printf '%s\n' "$findings_json" | jq 'length' 2>/dev/null || printf '0')"
+    [ "$total" -gt 0 ] || exit 0
+
+    # Apply 20-finding cap (Z4).
+    local MAX_FINDINGS=20
+    local capped; capped="$(printf '%s\n' "$findings_json" \
+        | jq --argjson max "$MAX_FINDINGS" '.[0:$max]')"
+    local overflow; overflow=$(( total > MAX_FINDINGS ? total - MAX_FINDINGS : 0 ))
+
+    local n_blocker n_error n_warn n_info
+    n_blocker="$(printf '%s\n' "$capped" | jq '[.[] | select(.severity=="blocker")] | length')"
+    n_error="$(printf '%s\n' "$capped"   | jq '[.[] | select(.severity=="error")]   | length')"
+    n_warn="$(printf '%s\n' "$capped"    | jq '[.[] | select(.severity=="warn")]    | length')"
+    n_info="$(printf '%s\n' "$capped"    | jq '[.[] | select(.severity=="info")]    | length')"
+
+    # Medium tier: only new findings ≥ error wake the agent (§11.3 criterion).
+    local n_actionable; n_actionable=$(( n_blocker + n_error ))
+
+    # Build §4.7 header.
+    local header_parts=""
+    [ "$n_blocker" -gt 0 ] && header_parts="${header_parts}${n_blocker} blocker$([ "$n_blocker" -ne 1 ] && printf 's'), "
+    [ "$n_error"   -gt 0 ] && header_parts="${header_parts}${n_error} error$([ "$n_error" -ne 1 ] && printf 's'), "
+    [ "$n_warn"    -gt 0 ] && header_parts="${header_parts}${n_warn} warning$([ "$n_warn" -ne 1 ] && printf 's'), "
+    [ "$n_info"    -gt 0 ] && header_parts="${header_parts}${n_info} info, "
+    header_parts="${header_parts%, }"
+    local header="slopguard: ${header_parts} in changed code (medium tier)"
+
+    # Build §4.7 body.
+    local body_lines
+    body_lines="$(printf '%s\n' "$capped" | jq -r '
+        group_by(.file)[] |
+        (.[0].file) as $f |
+        ($f + "\n") +
+        (map(
+            "  " +
+            (if .severity == "blocker" then "BLOCKER"
+             elif .severity == "error" then "ERROR  "
+             elif .severity == "warn"  then "WARN   "
+             else "INFO   " end) + " " +
+            (if .line > 0 then "L\(.line) " else "" end) +
+            .ap_id + " " +
+            (if (.cwe | length) > 0 then .cwe[0] + " " else "" end) +
+            "[\(.tool):\(.tool_rule)] " +
+            .message +
+            (if .fix != "" then ". Fix: " + .fix else "" end)
+        ) | join("\n"))
+    ' 2>/dev/null || true)"
+
+    # Details lines for error/blocker AP-ids.
+    local unique_ap_ids details_lines=""
+    unique_ap_ids="$(printf '%s\n' "$capped" | jq -r \
+        '[.[] | select(.severity == "blocker" or .severity == "error") | .ap_id] | unique | .[]' \
+        2>/dev/null | head -5 || true)"
+    while IFS= read -r _ap; do
+        [ -n "$_ap" ] || continue
+        local _skill=""
+        case "$_ap" in
+            AP-PHP-*)              _skill="php-antipatterns" ;;
+            AP-GO-*)               _skill="go-antipatterns" ;;
+            AP-PY-*)               _skill="python-antipatterns" ;;
+            AP-TS-*|AP-NODE-*)     _skill="ts-react-antipatterns" ;;
+            AP-K8S-*|AP-TF-*|AP-DOCKER-*|AP-CI-*) _skill="iac-antipatterns" ;;
+            AP-SQL-*)              _skill="sql-antipatterns" ;;
+            *)                     _skill="${_ap%%-*}-antipatterns" ;;
+        esac
+        details_lines="${details_lines}Details: skills ${_skill}/reference/${_ap}.md\n"
+    done <<< "$unique_ap_ids"
+
+    local msg="${header}"$'\n'"${body_lines}"
+    [ -n "$details_lines" ] && msg="${msg}"$'\n'"$(printf '%b' "${details_lines}")"
+    [ "$overflow" -gt 0 ] \
+        && msg="${msg}"$'\n'"+${overflow} more findings (run: slopguard scan ${file_path})"
+
+    # Trim to 4000 chars (Z4).
+    [ "${#msg}" -gt 4000 ] && msg="${msg:0:3990}..."
+
+    # Enforce modes §4.6.
+    case "$enforcement" in
+        advisory)
+            hook_context "$msg"
+            ;;
+        balanced|strict)
+            if [ "$n_actionable" -gt 0 ]; then
+                printf '%s\n' "$msg" >&2
+                exit 2
+            elif [ "$n_warn" -gt 0 ]; then
+                hook_context "$msg"
+            fi
+            ;;
+    esac
+
+    exit 0
+}
 
 cmd_post_write() {
     # Parse --tier=<value> flag; other args are silently ignored for
@@ -100,6 +229,16 @@ cmd_post_write() {
             [ -f "${CLAUDE_PLUGIN_ROOT}/lib/ext.sh" ] \
                 && . "${CLAUDE_PLUGIN_ROOT}/lib/ext.sh"
             "${PLUGIN_ROOT}/hooks/post-write"
+            ;;
+        medium)
+            # shellcheck source=../lib/diff.sh
+            . "${CLAUDE_PLUGIN_ROOT}/lib/diff.sh"
+            # shellcheck source=../lib/dispatch.sh
+            . "${CLAUDE_PLUGIN_ROOT}/lib/dispatch.sh"
+            # shellcheck source=../lib/ext.sh
+            [ -f "${CLAUDE_PLUGIN_ROOT}/lib/ext.sh" ] \
+                && . "${CLAUDE_PLUGIN_ROOT}/lib/ext.sh"
+            _cmd_post_write_medium
             ;;
         *)
             # Unknown tier: exit 0 (fail-open — future tiers are not errors).
@@ -381,11 +520,25 @@ Tool resolution order (tool_source=project-first):
 See tools/tools.lock.json for pinned versions and sha256 hashes.
 USAGE
 }
+# --------------------------------------------------------------------------- #
+# stop-gate
+# --------------------------------------------------------------------------- #
+
+cmd_stop_gate() {
+    # Source lib/stop.sh when present (Etap 4 — fail-open before it ships).
+    [ -f "${CLAUDE_PLUGIN_ROOT}/lib/stop.sh" ] && . "${CLAUDE_PLUGIN_ROOT}/lib/stop.sh"
+    # Delegate to hooks/stop; exit 0 if not yet deployed.
+    if [ -f "${PLUGIN_ROOT}/hooks/stop" ]; then
+        exec "${PLUGIN_ROOT}/hooks/stop" "$@"
+    fi
+    # hooks/stop not yet deployed: fail-open.
+    exit 0
+}
 
 # --------------------------------------------------------------------------- #
 
 case "${1:-help}" in
-    session-start|pre-bash|pre-write|pre-read|post-write|doctor|note-docs|deps-check) ensure_jq ;;
+    session-start|pre-bash|pre-write|pre-read|post-write|doctor|note-docs|deps-check|stop-gate) ensure_jq ;;
 esac
 
 case "${1:-help}" in
@@ -394,6 +547,7 @@ case "${1:-help}" in
     pre-write)         shift; cmd_pre_write "$@" ;;
     pre-read)          shift; cmd_pre_read "$@" ;;
     post-write)        shift; cmd_post_write "$@" ;;
+    stop-gate)         shift; cmd_stop_gate "$@" ;;
     doctor)            shift; cmd_doctor "$@" ;;
     note-docs)         shift; cmd_note_docs "$@" ;;
     deps-check)        shift; cmd_deps_check "$@" ;;

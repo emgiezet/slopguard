@@ -1,0 +1,52 @@
+---
+# rules/opengrep/python.yaml — Python SAST antipattern rules.
+# License: MIT. Written from scratch; does not copy or paraphrase Semgrep Registry content.
+# Opengrep is not installed in the authoring environment; patterns are syntactic (no taint mode).
+# Note: AP-PY-SEC-001 is also partially covered by ruff S608; these rules target
+# ORM-specific patterns (Django .raw(), SQLAlchemy text()) that ruff does not detect.
+rules:
+  - id: slopguard.py.django-raw-sql-format
+    languages: [python]
+    message: >-
+      Django QuerySet.raw() called with a format string or f-string. Formatting
+      variables into the SQL string enables injection. Pass user values as the
+      second argument params list: Model.objects.raw('...WHERE id=%s', [id]).
+    severity: ERROR
+    metadata:
+      ap_id: AP-PY-SEC-001
+      category: security
+      cwe: CWE-89
+    pattern-either:
+      - pattern: $MODEL.objects.raw($SQL % $PARAMS)
+      - pattern: $MODEL.objects.raw($SQL.format(...))
+      - pattern: $MODEL.objects.raw(f"...")
+      - pattern: $MANAGER.raw($SQL % $PARAMS)
+      - pattern: $MANAGER.raw($SQL.format(...))
+      - pattern: $MANAGER.raw(f"...")
+      - pattern: connection.execute($SQL % $PARAMS)
+      - pattern: connection.execute($SQL.format(...))
+      - pattern: connection.execute(f"...")
+      - pattern: cursor.execute($SQL % $PARAMS)
+      - pattern: cursor.execute($SQL.format(...))
+      - pattern: cursor.execute(f"...")
+
+  - id: slopguard.py.sqlalchemy-text-fstring
+    languages: [python]
+    message: >-
+      SQLAlchemy text() called with an f-string or %-formatted string. Embedding
+      variables into the SQL text enables injection. Use named bind parameters
+      instead: text('WHERE id = :id').bindparams(id=user_id).
+    severity: ERROR
+    metadata:
+      ap_id: AP-PY-SEC-001
+      category: security
+      cwe: CWE-89
+    pattern-either:
+      - pattern: sqlalchemy.text(f"...")
+      - pattern: text(f"...")
+      - pattern: sqlalchemy.text($SQL % $ARGS)
+      - pattern: text($SQL % $ARGS)
+      - pattern: sqlalchemy.text($SQL.format(...))
+      - pattern: text($SQL.format(...))
+      - pattern: db.execute(text(f"..."))
+      - pattern: session.execute(text(f"..."))

@@ -1,0 +1,38 @@
+---
+# rules/opengrep/php.yaml — General PHP security antipattern rules.
+# License: MIT. Written from scratch; does not copy or paraphrase Semgrep Registry content.
+# Opengrep is not installed in the authoring environment; patterns are syntactic (no taint mode).
+rules:
+  - id: slopguard.php.weak-password-hash
+    languages: [php]
+    message: >-
+      md5() and sha1() are not suitable for password hashing. They are fast
+      cryptographic hashes with no built-in work factor. Use password_hash()
+      with PASSWORD_BCRYPT or PASSWORD_ARGON2ID, or Hash::make() in Laravel.
+    severity: ERROR
+    metadata:
+      ap_id: AP-PHP-SEC-006
+      category: security
+      cwe: CWE-327
+    pattern-either:
+      - pattern: md5($PASSWORD)
+      - pattern: sha1($PASSWORD)
+      - pattern: hash('md5', $PASSWORD)
+      - pattern: hash('sha1', $PASSWORD)
+
+  - id: slopguard.php.insecure-random-token
+    languages: [php]
+    message: >-
+      rand(), mt_rand(), and uniqid() are not cryptographically secure. For
+      tokens, session identifiers, or CSRF values use random_bytes() or
+      Str::random() (Laravel), which read from the OS CSPRNG.
+    severity: ERROR
+    metadata:
+      ap_id: AP-PHP-SEC-006
+      category: security
+      cwe: CWE-330
+    pattern-either:
+      - pattern: rand(...)
+      - pattern: mt_rand(...)
+      - pattern: uniqid(...)
+      - pattern: uniqid()

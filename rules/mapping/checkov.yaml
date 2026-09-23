@@ -1,0 +1,73 @@
+---
+# Checkov check → AP-id mapping (§6.6, tier M).
+# Checkov open source does not include severity in output; assigned here per spec §6.6.
+# Public access / wildcard IAM / no encryption → blocker; logging/backup → warn.
+rules:
+  # Terraform / AWS — open S3, SG, IAM
+  CKV_AWS_57:
+    ap_id: AP-TF-SEC-010
+    severity: blocker
+    category: security
+    cwe: ""
+  CKV_AWS_25:
+    ap_id: AP-TF-SEC-011
+    severity: blocker
+    category: security
+    cwe: ""
+  CKV_AWS_24:
+    ap_id: AP-TF-SEC-012
+    severity: blocker
+    category: security
+    cwe: ""
+  CKV_AWS_1:
+    ap_id: AP-TF-SEC-013
+    severity: blocker
+    category: security
+    cwe: CWE-269
+  CKV_AWS_2:
+    ap_id: AP-TF-SEC-014
+    severity: blocker
+    category: security
+    cwe: CWE-319
+  CKV_AWS_19:
+    ap_id: AP-TF-SEC-015
+    severity: blocker
+    category: security
+    cwe: CWE-311
+  CKV_AWS_18:
+    ap_id: AP-TF-SEC-016
+    severity: warn
+    category: security
+    cwe: ""
+  CKV_AWS_86:
+    ap_id: AP-TF-SEC-017
+    severity: warn
+    category: security
+    cwe: ""
+  # Kubernetes
+  CKV_K8S_1:
+    ap_id: AP-K8S-010
+    severity: blocker
+    category: security
+    cwe: ""
+  CKV_K8S_6:
+    ap_id: AP-K8S-011
+    severity: blocker
+    category: security
+    cwe: ""
+  CKV_K8S_8:
+    ap_id: AP-K8S-012
+    severity: error
+    category: security
+    cwe: ""
+  # Docker
+  CKV_DOCKER_1:
+    ap_id: AP-DOCKER-010
+    severity: error
+    category: security
+    cwe: ""
+  CKV_DOCKER_2:
+    ap_id: AP-DOCKER-011
+    severity: error
+    category: security
+    cwe: ""

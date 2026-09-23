@@ -1,0 +1,293 @@
+---
+# rules/mapping/opengrep.yaml — Opengrep rule ID → AP-id mapping.
+# Severity defaults: security with CWE Top-25 → blocker, other security → error,
+# performance → warn, maintainability → warn.
+# Tier 2 AP-JVM-*/AP-CS-*/AP-RB-*/AP-RS-* IDs are provisional; catalog
+# entries will be confirmed in Etap 5.
+rules:
+  # ---------- PHP / Laravel ----------
+  slopguard.php.laravel.raw-sql-interpolation:
+    ap_id: AP-PHP-SEC-001
+    severity: blocker
+    category: security
+    cwe: CWE-89
+  slopguard.php.laravel.blade-unescaped-output:
+    ap_id: AP-PHP-SEC-004
+    severity: blocker
+    category: security
+    cwe: CWE-79
+  slopguard.php.laravel.mass-assignment-request-all:
+    ap_id: AP-PHP-SEC-005
+    severity: error
+    category: security
+    cwe: CWE-915
+  slopguard.php.laravel.query-in-loop:
+    ap_id: AP-PHP-PERF-003
+    severity: error
+    category: performance
+    cwe: ""
+  slopguard.php.laravel.unbounded-all:
+    ap_id: AP-PHP-PERF-002
+    severity: warn
+    category: performance
+    cwe: ""
+  slopguard.php.weak-password-hash:
+    ap_id: AP-PHP-SEC-006
+    severity: blocker
+    category: security
+    cwe: CWE-327
+  slopguard.php.insecure-random-token:
+    ap_id: AP-PHP-SEC-006
+    severity: error
+    category: security
+    cwe: CWE-330
+  # ---------- Go ----------
+  slopguard.go.http-client-without-timeout:
+    ap_id: AP-GO-PERF-001
+    severity: error
+    category: performance
+    cwe: CWE-400
+  slopguard.go.goroutine-per-item-unbounded:
+    ap_id: AP-GO-PERF-003
+    severity: error
+    category: performance
+    cwe: CWE-400
+  # ---------- Python ----------
+  slopguard.py.django-raw-sql-format:
+    ap_id: AP-PY-SEC-001
+    severity: blocker
+    category: security
+    cwe: CWE-89
+  slopguard.py.sqlalchemy-text-fstring:
+    ap_id: AP-PY-SEC-001
+    severity: blocker
+    category: security
+    cwe: CWE-89
+  # ---------- Node.js ----------
+  slopguard.node.prototype-pollution-merge:
+    ap_id: AP-NODE-SEC-001
+    severity: blocker
+    category: security
+    cwe: CWE-1321
+  slopguard.node.exec-template-literal:
+    ap_id: AP-NODE-SEC-002
+    severity: blocker
+    category: security
+    cwe: CWE-78
+  slopguard.node.math-random-token:
+    ap_id: AP-NODE-SEC-006
+    severity: blocker
+    category: security
+    cwe: CWE-330
+  slopguard.node.express-no-body-limit:
+    ap_id: AP-NODE-SEC-007
+    severity: error
+    category: security
+    cwe: CWE-400
+  slopguard.node.jwt-verify-without-algorithms:
+    ap_id: AP-NODE-SEC-009
+    severity: blocker
+    category: security
+    cwe: CWE-347
+  # ---------- React / TypeScript ----------
+  slopguard.react.token-in-localstorage:
+    ap_id: AP-TS-SEC-003
+    severity: error
+    category: security
+    cwe: CWE-922
+  slopguard.react.href-js-scheme:
+    ap_id: AP-TS-SEC-004
+    severity: blocker
+    category: security
+    cwe: CWE-79
+  # ---------- SQL migrations ----------
+  slopguard.laravel.migration-fk-without-index:
+    ap_id: AP-SQL-004
+    severity: warn
+    category: performance
+    cwe: ""
+  slopguard.migration.not-null-without-default:
+    ap_id: AP-SQL-003
+    severity: error
+    category: performance
+    cwe: ""
+  # ---------- Docker / GitLab CI ----------
+  slopguard.docker.curl-pipe-shell:
+    ap_id: AP-DOCKER-004
+    severity: blocker
+    category: security
+    cwe: CWE-494
+  slopguard.gitlab.image-without-digest:
+    ap_id: AP-CI-006
+    severity: error
+    category: security
+    cwe: CWE-494
+  slopguard.gitlab.include-remote:
+    ap_id: AP-CI-006
+    severity: error
+    category: security
+    cwe: CWE-829
+  # ---------- JVM (Java + Kotlin) — tier 2 ----------
+  slopguard.jvm.jdbc-string-concat:
+    ap_id: AP-JVM-SEC-001
+    severity: blocker
+    category: security
+    cwe: CWE-89
+  slopguard.jvm.runtime-exec-concat:
+    ap_id: AP-JVM-SEC-002
+    severity: blocker
+    category: security
+    cwe: CWE-78
+  slopguard.jvm.object-deserialize:
+    ap_id: AP-JVM-SEC-003
+    severity: blocker
+    category: security
+    cwe: CWE-502
+  slopguard.jvm.insecure-random:
+    ap_id: AP-JVM-SEC-004
+    severity: error
+    category: security
+    cwe: CWE-338
+  slopguard.jvm.jackson-default-typing:
+    ap_id: AP-JVM-SEC-005
+    severity: blocker
+    category: security
+    cwe: CWE-502
+  slopguard.jvm.trust-all-ssl:
+    ap_id: AP-JVM-SEC-006
+    severity: blocker
+    category: security
+    cwe: CWE-295
+  slopguard.jvm.xml-external-entity:
+    ap_id: AP-JVM-SEC-007
+    severity: blocker
+    category: security
+    cwe: CWE-611
+  slopguard.jvm.log-injection:
+    ap_id: AP-JVM-SEC-008
+    severity: warn
+    category: security
+    cwe: CWE-117
+  # ---------- C# (.NET) — tier 2 ----------
+  slopguard.cs.sql-string-interpolation:
+    ap_id: AP-CS-SEC-001
+    severity: blocker
+    category: security
+    cwe: CWE-89
+  slopguard.cs.binary-formatter:
+    ap_id: AP-CS-SEC-002
+    severity: blocker
+    category: security
+    cwe: CWE-502
+  slopguard.cs.process-start-user-input:
+    ap_id: AP-CS-SEC-003
+    severity: blocker
+    category: security
+    cwe: CWE-78
+  slopguard.cs.path-traversal:
+    ap_id: AP-CS-SEC-004
+    severity: blocker
+    category: security
+    cwe: CWE-22
+  slopguard.cs.crypto-weak-algorithm:
+    ap_id: AP-CS-SEC-005
+    severity: error
+    category: security
+    cwe: CWE-327
+  slopguard.cs.insecure-random:
+    ap_id: AP-CS-SEC-006
+    severity: error
+    category: security
+    cwe: CWE-338
+  slopguard.cs.xxe-xml:
+    ap_id: AP-CS-SEC-007
+    severity: blocker
+    category: security
+    cwe: CWE-611
+  slopguard.cs.ldap-injection:
+    ap_id: AP-CS-SEC-008
+    severity: blocker
+    category: security
+    cwe: CWE-90
+  # ---------- Ruby / Rails — tier 2 ----------
+  slopguard.ruby.eval-user-input:
+    ap_id: AP-RB-SEC-001
+    severity: blocker
+    category: security
+    cwe: CWE-95
+  slopguard.ruby.send-user-input:
+    ap_id: AP-RB-SEC-001
+    severity: blocker
+    category: security
+    cwe: CWE-94
+  slopguard.ruby.constantize-user-input:
+    ap_id: AP-RB-SEC-002
+    severity: blocker
+    category: security
+    cwe: CWE-94
+  slopguard.ruby.yaml-load-unsafe:
+    ap_id: AP-RB-SEC-003
+    severity: blocker
+    category: security
+    cwe: CWE-502
+  slopguard.ruby.shell-injection-interpolation:
+    ap_id: AP-RB-SEC-004
+    severity: blocker
+    category: security
+    cwe: CWE-78
+  slopguard.ruby.mass-assignment-without-permit:
+    ap_id: AP-RB-SEC-005
+    severity: error
+    category: security
+    cwe: CWE-915
+  slopguard.ruby.sql-string-interpolation:
+    ap_id: AP-RB-SEC-006
+    severity: blocker
+    category: security
+    cwe: CWE-89
+  slopguard.ruby.insecure-random:
+    ap_id: AP-RB-SEC-007
+    severity: error
+    category: security
+    cwe: CWE-338
+  # ---------- Rust — tier 2 ----------
+  slopguard.rs.unsafe-block:
+    ap_id: AP-RS-SEC-001
+    severity: warn
+    category: security
+    cwe: ""
+  slopguard.rs.unwrap-in-library:
+    ap_id: AP-RS-SEC-002
+    severity: warn
+    category: maintainability
+    cwe: ""
+  slopguard.rs.serde-missing-deny-unknown:
+    ap_id: AP-RS-SEC-003
+    severity: warn
+    category: security
+    cwe: ""
+  slopguard.rs.integer-arithmetic-overflow:
+    ap_id: AP-RS-SEC-004
+    severity: warn
+    category: security
+    cwe: CWE-190
+  slopguard.rs.raw-pointer-deref:
+    ap_id: AP-RS-SEC-005
+    severity: warn
+    category: security
+    cwe: ""
+  slopguard.rs.mem-transmute:
+    ap_id: AP-RS-SEC-006
+    severity: error
+    category: security
+    cwe: ""
+  slopguard.rs.from-utf8-unchecked:
+    ap_id: AP-RS-SEC-007
+    severity: error
+    category: security
+    cwe: ""
+  slopguard.rs.command-injection:
+    ap_id: AP-RS-SEC-008
+    severity: error
+    category: security
+    cwe: CWE-78

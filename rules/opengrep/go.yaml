@@ -1,0 +1,57 @@
+---
+# rules/opengrep/go.yaml — Go performance and security antipattern rules.
+# License: MIT. Written from scratch; does not copy or paraphrase Semgrep Registry content.
+# Opengrep is not installed in the authoring environment; patterns are syntactic (no taint mode).
+rules:
+  - id: slopguard.go.http-client-without-timeout
+    languages: [go]
+    message: >-
+      http.Get/Post/Head and the zero-value http.Client have no request timeout.
+      A slow or unresponsive server will block this goroutine indefinitely.
+      Use http.NewRequestWithContext with a context deadline, or set Client.Timeout.
+    severity: WARNING
+    metadata:
+      ap_id: AP-GO-PERF-001
+      category: performance
+      cwe: CWE-400
+    pattern-either:
+      - pattern: http.Get(...)
+      - pattern: http.Post(...)
+      - pattern: http.Head(...)
+      - pattern: http.PostForm(...)
+      - patterns:
+          - pattern: |
+              $C := &http.Client{$...FIELDS}
+          - pattern-not: |
+              $C := &http.Client{$...FIELDS, Timeout: $_, $...MORE}
+
+  - id: slopguard.go.goroutine-per-item-unbounded
+    languages: [go]
+    message: >-
+      Spawning one goroutine per loop iteration with no concurrency limit leaks
+      goroutines when the input slice is large or unbounded. Use errgroup with
+      SetLimit, a worker pool, or a buffered channel as a semaphore.
+    severity: WARNING
+    metadata:
+      ap_id: AP-GO-PERF-003
+      category: performance
+      cwe: CWE-400
+    pattern-either:
+      - pattern: |
+          for $_, $V := range $ITEMS {
+            ...
+            go func(...) { ... }(...)
+            ...
+          }
+      - pattern: |
+          for $I := 0; ...; ... {
+            ...
+            go func(...) { ... }(...)
+            ...
+          }
+      - pattern: |
+          for $_, $V := range $ITEMS {
+            ...
+            go $F(...)
+            ...
+          }

@@ -1,0 +1,150 @@
+---
+# rules/opengrep/ruby.yaml — Ruby and Rails security antipattern rules.
+# License: MIT. Written from scratch; does not copy or paraphrase Semgrep Registry content.
+# Opengrep is not installed in the authoring environment; patterns are syntactic (no taint mode).
+# Tier 2 rule set. Individual AP-RB-* IDs will be confirmed in Etap 5 catalog.
+rules:
+  - id: slopguard.ruby.eval-user-input
+    languages: [ruby]
+    message: >-
+      eval() executes arbitrary Ruby code. Never pass user-supplied strings to
+      eval. Use a data structure, a policy object, or an explicit case/hash
+      dispatch to select behavior from user input.
+    severity: ERROR
+    metadata:
+      ap_id: AP-RB-SEC-001
+      category: security
+      cwe: CWE-95
+    pattern-either:
+      - pattern: eval($VAR)
+      - pattern: eval($STR + $VAR)
+      - pattern: binding.eval($VAR)
+      - pattern: instance_eval($VAR)
+      - pattern: class_eval($VAR)
+      - pattern: module_eval($VAR)
+
+  - id: slopguard.ruby.send-user-input
+    languages: [ruby]
+    message: >-
+      send() with a user-controlled method name calls any method on the object,
+      including private ones and dangerous built-ins. Use an explicit allowlist
+      of permitted method names and call send() only after verifying the name.
+    severity: ERROR
+    metadata:
+      ap_id: AP-RB-SEC-001
+      category: security
+      cwe: CWE-94
+    pattern-either:
+      - pattern: $OBJ.send($VAR)
+      - pattern: $OBJ.public_send($VAR)
+      - pattern: send($VAR)
+
+  - id: slopguard.ruby.constantize-user-input
+    languages: [ruby]
+    message: >-
+      constantize() on user input resolves an arbitrary constant by name,
+      allowing an attacker to reference any class including dangerous ones.
+      Build an explicit allowlist of permitted class names and use a hash
+      lookup instead of constantize.
+    severity: ERROR
+    metadata:
+      ap_id: AP-RB-SEC-002
+      category: security
+      cwe: CWE-94
+    pattern-either:
+      - pattern: $VAR.constantize
+      - pattern: $VAR.safe_constantize
+      - pattern: Object.const_get($VAR)
+
+  - id: slopguard.ruby.yaml-load-unsafe
+    languages: [ruby]
+    message: >-
+      YAML.load() deserializes arbitrary Ruby objects including those with
+      dangerous #init or #marshal_load methods (Psych gadget chains). Use
+      YAML.safe_load() which restricts deserialization to safe scalar types,
+      or YAML.safe_load(data, permitted_classes: [...]).
+    severity: ERROR
+    metadata:
+      ap_id: AP-RB-SEC-003
+      category: security
+      cwe: CWE-502
+    pattern-either:
+      - pattern: YAML.load($INPUT)
+      - pattern: Psych.load($INPUT)
+      - pattern: YAML.load_file($PATH)
+      - pattern: Psych.load_file($PATH)
+
+  - id: slopguard.ruby.shell-injection-interpolation
+    languages: [ruby]
+    message: >-
+      Shell command built with string interpolation passes user input to the
+      shell unescaped. Use an array form of system(), spawn(), or Open3.capture2
+      so the shell is never invoked, or escape arguments with Shellwords.escape.
+    severity: ERROR
+    metadata:
+      ap_id: AP-RB-SEC-004
+      category: security
+      cwe: CWE-78
+    pattern-either:
+      - pattern: system("...#{$VAR}...")
+      - pattern: exec("...#{$VAR}...")
+      - pattern: spawn("...#{$VAR}...")
+      - pattern: '`...#{$VAR}...`'
+      - pattern: "%x(... #{$VAR}...)"
+      - pattern: IO.popen("...#{$VAR}...")
+      - pattern: Open3.capture2("...#{$VAR}...")
+
+  - id: slopguard.ruby.mass-assignment-without-permit
+    languages: [ruby]
+    message: >-
+      Passing params directly to create() or update() without permit() allows
+      an attacker to set any model attribute, including protected ones. Use
+      params.require(:model).permit(:field1, :field2) to allowlist only the
+      intended attributes.
+    severity: WARNING
+    metadata:
+      ap_id: AP-RB-SEC-005
+      category: security
+      cwe: CWE-915
+    pattern-either:
+      - pattern: $MODEL.create(params)
+      - pattern: $MODEL.new(params)
+      - pattern: $INSTANCE.update(params)
+      - pattern: $INSTANCE.update_attributes(params)
+      - pattern: $MODEL.create(params[$KEY])
+      - pattern: $INSTANCE.update(params[$KEY])
+
+  - id: slopguard.ruby.sql-string-interpolation
+    languages: [ruby]
+    message: >-
+      ActiveRecord where() or find_by_sql() called with a string containing
+      interpolation. User-controlled values interpolated into SQL enable
+      injection. Use the array syntax: where('col = ?', val) or a hash:
+      where(col: val).
+    severity: ERROR
+    metadata:
+      ap_id: AP-RB-SEC-006
+      category: security
+      cwe: CWE-89
+    pattern-either:
+      - pattern: $MODEL.where("...#{$VAR}...")
+      - pattern: $MODEL.find_by_sql("...#{$VAR}...")
+      - pattern: $MODEL.find_by_sql(["...#{$VAR}..."])
+      - pattern: $SCOPE.where("...#{$VAR}...")
+      - pattern: ActiveRecord::Base.connection.execute("...#{$VAR}...")
+
+  - id: slopguard.ruby.insecure-random
+    languages: [ruby]
+    message: >-
+      Kernel#rand and Random.rand use a Mersenne Twister PRNG which is not
+      cryptographically secure. For tokens, session identifiers, or key material
+      use SecureRandom.hex, SecureRandom.random_bytes, or SecureRandom.uuid.
+    severity: ERROR
+    metadata:
+      ap_id: AP-RB-SEC-007
+      category: security
+      cwe: CWE-338
+    pattern-either:
+      - pattern: rand(...)
+      - pattern: Random.rand(...)
+      - pattern: Kernel.rand(...)

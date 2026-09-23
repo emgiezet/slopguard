@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# hooks/stop — Stop event gate.
+#
+# Registered in hooks/hooks.json as: slopguard stop-gate
+# Also callable as: bin/slopguard stop-gate  (registered by MediumTier)
+#
+# Sources all required libraries and delegates to stop_main in lib/stop.sh.
+# Exit codes (§3.2):
+#   exit 0 + JSON stdout   — allow / advisory report / loop protection message
+#   exit 2 + report stderr — balanced: blocker; strict: blocker or error
+set -uo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+PLUGIN_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+: "${CLAUDE_PLUGIN_ROOT:=$PLUGIN_ROOT}"
+
+# Grok runtime: seed CLAUDE_* from GROK_* so all downstream scripts are host-agnostic.
+[ -n "${GROK_PLUGIN_ROOT:-}" ] && : "${CLAUDE_PLUGIN_ROOT:=$GROK_PLUGIN_ROOT}"
+[ -n "${GROK_PLUGIN_DATA:-}" ] && : "${CLAUDE_PLUGIN_DATA:=$GROK_PLUGIN_DATA}"
+: "${CLAUDE_PLUGIN_DATA:=${XDG_DATA_HOME:-$HOME/.local/share}/claude/plugins/slop-guard}"
+
+# shellcheck source=../lib/hook.sh
+. "${PLUGIN_ROOT}/lib/hook.sh"
+# shellcheck source=../lib/state.sh
+. "${PLUGIN_ROOT}/lib/state.sh"
+# shellcheck source=../lib/finding.sh
+. "${PLUGIN_ROOT}/lib/finding.sh"
+# shellcheck source=../lib/tools.sh
+. "${PLUGIN_ROOT}/lib/tools.sh"
+# shellcheck source=../lib/docs.sh
+. "${PLUGIN_ROOT}/lib/docs.sh"
+# shellcheck source=../lib/secrets.sh
+. "${PLUGIN_ROOT}/lib/secrets.sh"
+# shellcheck source=../lib/stop.sh
+. "${PLUGIN_ROOT}/lib/stop.sh"
+
+hook_input
+stop_main

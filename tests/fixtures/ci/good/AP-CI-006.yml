@@ -1,0 +1,29 @@
+---
+# GitLab CI pipeline — safe patterns
+stages:
+  - build
+  - test
+
+# ok: slopguard.gitlab.image-without-digest
+# Images pinned to immutable digest
+build:
+  image: node@sha256:a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2
+  stage: build
+  script:
+    - npm ci
+    - npm run build
+
+# ok: slopguard.gitlab.image-without-digest
+test:
+  image: python@sha256:b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3
+  stage: test
+  script:
+    - pytest
+
+# ok: slopguard.gitlab.include-remote
+# Use local or project includes, not remote URLs
+include:
+  - local: '/templates/common.yml'
+  - project: 'group/shared-ci'
+    ref: 'v1.0.0'
+    file: '/templates/security.yml'

@@ -1,0 +1,132 @@
+---
+# rules/opengrep/rust.yaml — Rust safety and correctness antipattern rules.
+# License: MIT. Written from scratch; does not copy or paraphrase Semgrep Registry content.
+# Opengrep is not installed in the authoring environment; patterns are syntactic (no taint mode).
+# Tier 2 rule set. Individual AP-RS-* IDs will be confirmed in Etap 5 catalog.
+rules:
+  - id: slopguard.rs.unsafe-block
+    languages: [rust]
+    message: >-
+      Unsafe block found. Every unsafe block must carry a // SAFETY: comment
+      that explains the invariants upholding the block's correctness. Without
+      documentation the block cannot be audited or maintained safely.
+    severity: WARNING
+    metadata:
+      ap_id: AP-RS-SEC-001
+      category: security
+    pattern: unsafe { ... }
+
+  - id: slopguard.rs.unwrap-in-library
+    languages: [rust]
+    message: >-
+      unwrap() panics when the value is None or Err, aborting the thread with
+      no recovery path. In library code, propagate errors with the ? operator
+      or return a Result/Option to give callers control over error handling.
+    severity: WARNING
+    metadata:
+      ap_id: AP-RS-SEC-002
+      category: maintainability
+    pattern-either:
+      - pattern: $E.unwrap()
+      - pattern: $E.expect($MSG)
+
+  - id: slopguard.rs.serde-missing-deny-unknown
+    languages: [rust]
+    message: >-
+      Struct derived from Deserialize without #[serde(deny_unknown_fields)].
+      Unknown fields in the input are silently ignored, hiding protocol
+      mismatches and potentially swallowing security-relevant data. Add the
+      attribute to reject documents with unexpected fields.
+    severity: WARNING
+    metadata:
+      ap_id: AP-RS-SEC-003
+      category: security
+    patterns:
+      - pattern: |
+          #[derive($...DERIVES)]
+          struct $S {
+            $...FIELDS
+          }
+      - pattern-regex: 'derive\([^)]*Deserialize[^)]*\)'
+      - pattern-not-regex: 'serde\s*\([^)]*deny_unknown_fields[^)]*\)'
+
+  - id: slopguard.rs.integer-arithmetic-overflow
+    languages: [rust]
+    message: >-
+      Plain integer arithmetic (+ - * <<) can overflow or underflow in debug
+      builds with a panic, or silently wrap in release builds. Use
+      checked_add/checked_mul, saturating_*, or wrapping_* depending on
+      the intended semantics, or enable overflow-checks in release profiles.
+    severity: WARNING
+    metadata:
+      ap_id: AP-RS-SEC-004
+      category: security
+      cwe: CWE-190
+    pattern-either:
+      - pattern: $A + $B
+      - pattern: $A - $B
+      - pattern: $A * $B
+      - pattern: $A << $B
+
+  - id: slopguard.rs.raw-pointer-deref
+    languages: [rust]
+    message: >-
+      Raw pointer dereference outside an unsafe block is a compile error, but
+      this pattern marks unsafe blocks that dereference raw pointers for audit.
+      Document why the pointer is valid and non-null at this point.
+    severity: WARNING
+    metadata:
+      ap_id: AP-RS-SEC-005
+      category: security
+    pattern: |
+      unsafe {
+        ... *$PTR ...
+      }
+
+  - id: slopguard.rs.mem-transmute
+    languages: [rust]
+    message: >-
+      std::mem::transmute reinterprets bytes with no type-safety checks. An
+      incorrect transmute causes undefined behaviour. Prefer safe alternatives:
+      From/Into trait conversions, bytemuck::cast, or zerocopy.
+    severity: ERROR
+    metadata:
+      ap_id: AP-RS-SEC-006
+      category: security
+    pattern-either:
+      - pattern: std::mem::transmute($X)
+      - pattern: mem::transmute($X)
+      - pattern: core::mem::transmute($X)
+
+  - id: slopguard.rs.from-utf8-unchecked
+    languages: [rust]
+    message: >-
+      from_utf8_unchecked() skips UTF-8 validation and produces undefined
+      behaviour if the byte slice is not valid UTF-8. Use from_utf8() which
+      returns a Result, and handle the Err case.
+    severity: ERROR
+    metadata:
+      ap_id: AP-RS-SEC-007
+      category: security
+    pattern-either:
+      - pattern: std::str::from_utf8_unchecked($BYTES)
+      - pattern: str::from_utf8_unchecked($BYTES)
+      - pattern: String::from_utf8_unchecked($VEC)
+
+  - id: slopguard.rs.command-injection
+    languages: [rust]
+    message: >-
+      std::process::Command spawned with user-controlled arguments. If the
+      user can supply arguments that look like flags or separate commands, they
+      may alter the command's behaviour. Validate or sanitize all arguments
+      before passing them to Command::arg().
+    severity: ERROR
+    metadata:
+      ap_id: AP-RS-SEC-008
+      category: security
+      cwe: CWE-78
+    pattern-either:
+      - pattern: Command::new($CMD).arg($VAR).spawn()
+      - pattern: Command::new($CMD).args(&[$VAR]).spawn()
+      - pattern: Command::new($CMD).arg($VAR).output()
+      - pattern: Command::new($CMD).args(&[$VAR]).output()

@@ -1,0 +1,452 @@
+#!/usr/bin/env bash
+# scripts/gen-skills — Generate skills/*/SKILL.md + skills/*/reference/<ID>.md
+# from rules/catalog.yaml.
+#
+# Usage:
+#   scripts/gen-skills                    write all skill files
+#   scripts/gen-skills --check            idempotency check (runs twice, diffs)
+#   scripts/gen-skills --over-budget <f>  use <f> as catalog; generator must exit non-zero
+#
+# Tool constraint: bash + jq + POSIX awk/sed (§12 D1). No network, no python.
+# §3 budgets enforced: SKILL.md ≤ 150 lines, ≤ 3000 tokens (1 token ≈ 4 chars).
+# Atomic writes: tmp file → mv.
+
+set -uo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+PLUGIN_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+CATALOG="${SLOPGUARD_CATALOG:-${PLUGIN_ROOT}/rules/catalog.yaml}"
+STACKS="${SLOPGUARD_STACKS_JSON:-${PLUGIN_ROOT}/rules/stacks.json}"
+SKILLS_DIR="${SLOPGUARD_SKILLS_DIR:-${PLUGIN_ROOT}/skills}"
+
+MAX_LINES=150
+MAX_TOKENS=3000
+TOKEN_DIV=4   # 1 token ≈ 4 chars
+FS=$'\034'    # ASCII File Separator; safe delimiter (absent from catalog content)
+
+# ─── argument parsing ─────────────────────────────────────────────────────────
+CHECK_MODE=false
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --check)           CHECK_MODE=true ; shift ;;
+        --over-budget)     CATALOG="$2" ; shift 2 ;;
+        --over-budget=*)   CATALOG="${1#--over-budget=}" ; shift ;;
+        *) printf 'gen-skills: unknown option: %s\n' "$1" >&2 ; exit 1 ;;
+    esac
+done
+
+[ -f "$CATALOG" ] || { printf 'gen-skills: catalog not found: %s\n' "$CATALOG" >&2 ; exit 1 ; }
+[ -f "$STACKS"  ] || { printf 'gen-skills: stacks not found: %s\n'  "$STACKS"  >&2 ; exit 1 ; }
+
+# ─── atomic write ─────────────────────────────────────────────────────────────
+write_atomic() {
+    local dest="$1" content="$2" tmp
+    tmp="${dest}.gen.$$"
+    printf '%s' "$content" > "$tmp" && mv "$tmp" "$dest"
+}
+
+# ─── lang list "[php]" or "[java, kotlin]" → space-separated tags ─────────────
+lang_tags() {
+    local v="$1"
+    v="${v#\[}"; v="${v%\]}"
+    printf '%s' "$v" | tr ',' '\n' | sed 's/[[:space:]]//g' | grep -v '^$' | tr '\n' ' '
+}
+
+# ─── first skill name for a language tag ──────────────────────────────────────
+lang_to_skill() {
+    case "$1" in
+        agent)                  printf 'agent-discipline' ;;
+        php|laravel|symfony|doctrine) printf 'php-antipatterns' ;;
+        go)                     printf 'go-antipatterns' ;;
+        python)                 printf 'python-antipatterns' ;;
+        typescript|react|vite)  printf 'ts-react-antipatterns' ;;
+        node|express)           printf 'node-antipatterns' ;;
+        sql)                    printf 'sql-antipatterns' ;;
+        terraform|kubernetes|helm|docker|github-actions|gitlab-ci)
+                                printf 'iac-antipatterns' ;;
+        java|kotlin)            printf 'jvm-antipatterns' ;;
+        csharp)                 printf 'csharp-antipatterns' ;;
+        ruby)                   printf 'ruby-antipatterns' ;;
+        rust)                   printf 'rust-antipatterns' ;;
+        *) printf '' ;;
+    esac
+}
+
+# ─── paths JSON for a skill (from stacks.json) ────────────────────────────────
+skill_paths() {
+    jq -r --arg s "$1" \
+        '[.[] | select(.skill==$s) | (.globs//[])[]] | unique | @json' \
+        "$STACKS" 2>/dev/null || printf '[]'
+}
+
+# ─── skill description text ───────────────────────────────────────────────────
+skill_desc() {
+    case "$1" in
+        php-antipatterns)
+            printf 'Forbidden PHP/Laravel/Symfony patterns — SQL injection, shell injection, weak crypto, N+1, and maintainability anti-patterns. Applies when editing PHP or Blade files.' ;;
+        go-antipatterns)
+            printf 'Forbidden Go patterns — SQL injection, shell injection, missing timeouts, resource leaks, goroutine leaks, and error handling issues. Applies when editing Go files.' ;;
+        python-antipatterns)
+            printf 'Forbidden Python patterns — SQL injection, shell injection, unsafe deserialization, missing timeouts, blocking async calls. Applies when editing Python files.' ;;
+        ts-react-antipatterns)
+            printf 'Forbidden TypeScript/React patterns — XSS, eval, localStorage tokens, hook bugs, floating Promises. Applies when editing TS/TSX files.' ;;
+        node-antipatterns)
+            printf 'Forbidden Node.js backend patterns — prototype pollution, shell injection, path traversal, ReDoS, sync I/O in handlers. Applies when editing JS/TS Node files.' ;;
+        sql-antipatterns)
+            printf 'Forbidden SQL patterns — SELECT *, missing CONCURRENTLY on indexes, unsafe migrations, missing FK indexes. Applies when editing SQL files.' ;;
+        iac-antipatterns)
+            printf 'Forbidden IaC/container/CI patterns — public cloud resources, unencrypted storage, privileged containers, unpinned images, insecure CI workflows.' ;;
+        jvm-antipatterns)
+            printf 'Forbidden JVM (Java/Kotlin) patterns — JDBC injection, insecure deserialization, weak random, trust-all TLS, Jackson misconfiguration.' ;;
+        csharp-antipatterns)
+            printf 'Forbidden C# patterns — SQL injection, BinaryFormatter, weak random, async void, exception swallowing. Applies when editing C# files.' ;;
+        ruby-antipatterns)
+            printf 'Forbidden Ruby/Rails patterns — eval with user input, YAML.load, mass assignment without permit, shell injection. Applies when editing Ruby files.' ;;
+        rust-antipatterns)
+            printf 'Forbidden Rust patterns — unsafe without safety comment, unwrap in library code, unchecked integer arithmetic. Applies when editing Rust files.' ;;
+        agent-discipline)
+            printf 'Always-on agent behavior rules: linter suppression policy, baseline changes, test deletion, dependency installs, credential handling, scope discipline.' ;;
+        secure-review)
+            printf 'Security review subagent. Reads session findings and catalogue; produces a structured security assessment. Invoke with /secure-review.' ;;
+        *) printf 'Anti-pattern prevention for %s.' "$1" ;;
+    esac
+}
+
+skill_title() {
+    case "$1" in
+        php-antipatterns)      printf 'PHP anti-patterns' ;;
+        go-antipatterns)       printf 'Go anti-patterns' ;;
+        python-antipatterns)   printf 'Python anti-patterns' ;;
+        ts-react-antipatterns) printf 'TypeScript / React anti-patterns' ;;
+        node-antipatterns)     printf 'Node.js anti-patterns' ;;
+        sql-antipatterns)      printf 'SQL anti-patterns' ;;
+        iac-antipatterns)      printf 'IaC / containers / CI anti-patterns' ;;
+        jvm-antipatterns)      printf 'JVM (Java / Kotlin) anti-patterns' ;;
+        csharp-antipatterns)   printf 'C# anti-patterns' ;;
+        ruby-antipatterns)     printf 'Ruby anti-patterns' ;;
+        rust-antipatterns)     printf 'Rust anti-patterns' ;;
+        agent-discipline)      printf 'Agent discipline — always-on rules' ;;
+        secure-review)         printf 'Secure review' ;;
+        *) printf '%s' "$1" ;;
+    esac
+}
+
+# ─── SKILL.md generator ───────────────────────────────────────────────────────
+# Reads FS-delimited entry records from stdin.
+# Fields: id FS lang FS cat FS sev FS prevent FS skill_line
+gen_skill_md() {
+    local skill_name="$1"
+    local skill_dir="${SKILLS_DIR}/${skill_name}"
+    mkdir -p "$skill_dir"
+
+    local paths desc title_txt
+    paths="$(skill_paths "$skill_name")"
+    desc="$(skill_desc "$skill_name")"
+    title_txt="$(skill_title "$skill_name")"
+
+    local out
+    out="---"$'\n'"name: ${skill_name}"$'\n'"description: ${desc}"$'\n'
+    if [ "$paths" != "[]" ] && [ -n "$paths" ]; then
+        out+="paths: ${paths}"$'\n'
+    fi
+    out+="user-invocable: false"$'\n'"---"$'\n\n'
+    out+="# ${title_txt} — do not write these"$'\n\n'
+
+    case "$skill_name" in
+        agent-discipline) out+="Enforced by pre-write and pre-bash policies. Full text on invocation."$'\n\n' ;;
+        secure-review)    out+="Invoke \`/secure-review\` to start the security review subagent."$'\n\n' ;;
+        *)                out+="Checks run automatically after each edit. Findings reference the IDs below."$'\n\n' ;;
+    esac
+
+    local blocker="" error="" warn=""
+    while IFS="$FS" read -r eid _ ecat esev eprev esl _; do
+        [ -n "$eid" ] && [ "$eprev" = "true" ] && [ -n "$esl" ] || continue
+        local b="- ${eid} — ${esl}"
+        case "$esev" in
+            blocker) blocker+="${b}"$'\n' ;;
+            error)   error+="${b}"$'\n' ;;
+            *)       warn+="${b}"$'\n' ;;
+        esac
+    done
+
+    local first=true
+    if [ -n "$blocker" ]; then
+        out+="## Blockers"$'\n'"${blocker}"; first=false
+    fi
+    if [ -n "$error" ]; then
+        $first || out+=$'\n'; out+="## Errors"$'\n'"${error}"; first=false
+    fi
+    if [ -n "$warn" ]; then
+        $first || out+=$'\n'; out+="## Warnings"$'\n'"${warn}"
+    fi
+
+    out+=$'\n'"Details for any ID: \`reference/<ID>.md\`"$'\n'
+
+    # ── budget check ─────────────────────────────────────────────────────────
+    local lc tc
+    lc="$(printf '%s' "$out" | wc -l)"
+    tc=$(( ${#out} / TOKEN_DIV ))
+    if [ "$lc" -gt "$MAX_LINES" ]; then
+        printf 'gen-skills: FATAL: "%s" exceeds line budget: %d > %d\n' \
+            "$skill_name" "$lc" "$MAX_LINES" >&2
+        exit 2
+    fi
+    if [ "$tc" -gt "$MAX_TOKENS" ]; then
+        printf 'gen-skills: FATAL: "%s" exceeds token budget: ~%d > %d\n' \
+            "$skill_name" "$tc" "$MAX_TOKENS" >&2
+        exit 2
+    fi
+
+    write_atomic "${skill_dir}/SKILL.md" "$out"
+    printf 'gen-skills: wrote %s/SKILL.md (%d lines, ~%d tokens)\n' \
+        "$skill_name" "$lc" "$tc"
+}
+
+# ─── catalog parser: single-line fields (for SKILL.md) ───────────────────────
+parse_skill_records() {
+    local f="$1"
+    awk -v FS_OUT="$FS" '
+    function trim(s,   t) { t=s; gsub(/^[[:space:]]+|[[:space:]]+$/,"",t); return t }
+    function emit() {
+        if (id == "") return
+        printf "%s%s%s%s%s%s%s%s%s%s%s\n", \
+            id,FS_OUT,lang,FS_OUT,cat,FS_OUT,sev,FS_OUT,prev,FS_OUT,sl
+    }
+    /^- id: /           { emit(); id=trim(substr($0,7)); lang=""; cat=""; sev=""; prev="false"; sl="" }
+    /^  language: /     { lang=trim(substr($0,index($0,": ")+2)) }
+    /^  category: /     { cat =trim(substr($0,index($0,": ")+2)) }
+    /^  severity: /     { sev =trim(substr($0,index($0,": ")+2)) }
+    /^  prevent_in_skill: / { prev=trim(substr($0,index($0,": ")+2)) }
+    /^  skill_line: /   { sl  =trim(substr($0,index($0,": ")+2)) }
+    END { emit() }
+    ' "$f"
+}
+
+# ─── reference file generator (awk writes directly to disk) ──────────────────
+generate_reference_files() {
+    local f="$1" sdir="$2"
+    # Pre-create all reference dirs
+    for sk in php-antipatterns go-antipatterns python-antipatterns \
+               ts-react-antipatterns node-antipatterns sql-antipatterns \
+               iac-antipatterns jvm-antipatterns csharp-antipatterns \
+               ruby-antipatterns rust-antipatterns agent-discipline; do
+        mkdir -p "${sdir}/${sk}/reference"
+    done
+
+    awk -v sdir="$sdir" '
+    function trim(s,   t) { t=s; gsub(/^[[:space:]]+|[[:space:]]+$/,"",t); return t }
+    function det_tool(s,   t) {
+        t=s; gsub(/.*tool:[[:space:]]*/,"",t); gsub(/[,[:space:]}\x27"]+.*/,"",t); return t }
+    function det_rule(s,   r) {
+        r=s; gsub(/.*rule:[[:space:]]*/,"",r); gsub(/[[:space:]}\x27"]+.*/,"",r); return r }
+
+    function first_skill(   arr, n, i, t) {
+        t = lang; gsub(/[\[\]]/,"",t); gsub(/,/," ",t); gsub(/[[:space:]]+/," ",t); t=trim(t)
+        n = split(t, arr, " ")
+        for (i=1; i<=n; i++) {
+            if (arr[i]=="php"||arr[i]=="laravel"||arr[i]=="symfony"||arr[i]=="doctrine")
+                return "php-antipatterns"
+            if (arr[i]=="go")   return "go-antipatterns"
+            if (arr[i]=="python") return "python-antipatterns"
+            if (arr[i]=="typescript"||arr[i]=="react"||arr[i]=="vite")
+                return "ts-react-antipatterns"
+            if (arr[i]=="node"||arr[i]=="express") return "node-antipatterns"
+            if (arr[i]=="sql")  return "sql-antipatterns"
+            if (arr[i]=="terraform"||arr[i]=="kubernetes"||arr[i]=="helm"||
+                arr[i]=="docker"||arr[i]=="github-actions"||arr[i]=="gitlab-ci")
+                return "iac-antipatterns"
+            if (arr[i]=="java"||arr[i]=="kotlin") return "jvm-antipatterns"
+            if (arr[i]=="csharp") return "csharp-antipatterns"
+            if (arr[i]=="ruby")   return "ruby-antipatterns"
+            if (arr[i]=="rust")   return "rust-antipatterns"
+            if (arr[i]=="agent")  return "agent-discipline"
+        }
+        return "misc-antipatterns"
+    }
+
+    function lang_fence(   l) {
+        l=lang
+        if (l~/php|laravel|symfony|doctrine/) return "php"
+        if (l~/\bgo\b/)    return "go"
+        if (l~/python/)    return "python"
+        if (l~/typescript|react/) return "typescript"
+        if (l~/node|express/)    return "javascript"
+        if (l~/java|kotlin/)     return "java"
+        if (l~/csharp/)   return "csharp"
+        if (l~/ruby/)     return "ruby"
+        if (l~/rust/)     return "rust"
+        if (l~/sql/)      return "sql"
+        if (l~/terraform/) return "hcl"
+        if (l~/kubernetes|docker|helm|github|gitlab/) return "yaml"
+        return ""
+    }
+
+    function flush_block() {
+        if      (cur == "bad")     bad     = block
+        else if (cur == "good")    good    = block
+        else if (cur == "summary") summary = block
+        block = ""; cur = ""; in_block = 0
+    }
+
+    function write_ref(   sk, fp, buf, cwe_d, ll) {
+        if (id == "") return
+        sk = first_skill()
+        fp = sdir "/" sk "/reference/" id ".md"
+        ll = lang_fence()
+        cwe_d = cwe; gsub(/[\[\]]/,"",cwe_d)
+
+        buf = "# " id " \xe2\x80\x94 " title "\n\n"
+        buf = buf "**Category:** " cat " | **Severity:** " sev
+        if (cwe_d != "" && cwe_d != " ") buf = buf " | **CWE:** " cwe_d
+        buf = buf "\n"
+        if (fw != "" && fw != "[]") buf = buf "**Frameworks:** " fw "\n"
+        buf = buf "\n## Summary\n" summary "\n\n"
+        if (bad != "") {
+            buf = buf "## Do Not Write\n"
+            if (ll != "") buf = buf "```" ll "\n" bad "\n```\n\n"
+            else          buf = buf bad "\n\n"
+        }
+        if (good != "") {
+            buf = buf "## Instead Write\n"
+            if (ll != "") buf = buf "```" ll "\n" good "\n```\n\n"
+            else          buf = buf good "\n\n"
+        }
+        if (det != "") buf = buf "## Detection\n" det "\n"
+        if (ref != "") buf = buf "## References\n" ref
+        printf "%s", buf > fp
+        close(fp)
+    }
+
+    function reset_entry() {
+        id=""; title=""; lang=""; cat=""; sev=""; cwe=""; fw=""; summary=""
+        bad=""; good=""; det=""; ref=""; block=""; cur=""; in_block=0; in_list=0
+    }
+
+    BEGIN { reset_entry() }
+
+    /^- id: / {
+        write_ref(); reset_entry()
+        id = trim(substr($0,7)); next
+    }
+    id == "" { next }
+
+    # End of block/list on next field or blank
+    (in_block||in_list) && (/^  [a-z_-]/||/^$/) {
+        if (in_block) flush_block()
+        in_list = 0; cur = ""
+        if (/^$/) { next }
+        # fall through to field processing
+    }
+
+    in_block && /^    / {
+        sub(/^    /,"")
+        block = (block == "") ? $0 : block "\n" $0
+        next
+    }
+    in_list && /^    - / {
+        sub(/^    - /,"")
+        if (cur == "detect") {
+            t = det_tool($0); r = det_rule($0)
+            if (t != "" && r != "") det = det "- " t ": `" r "`\n"
+        } else if (cur == "references") {
+            if ($0 != "") ref = ref "- " $0 "\n"
+        }
+        next
+    }
+
+    !in_block && !in_list && /^  [a-z_-]+:/ {
+        l2=$0; sub(/^  /,"",l2)
+        ci = index(l2,":"); fn = substr(l2,1,ci-1); fv = trim(substr(l2,ci+2))
+        if      (fn=="title")      title   = fv
+        else if (fn=="language")   lang    = fv
+        else if (fn=="category")   cat     = fv
+        else if (fn=="severity")   sev     = fv
+        else if (fn=="cwe")        cwe     = fv
+        else if (fn=="frameworks") fw      = fv
+        else if (fn=="summary" && fv!="" && fv!="|") summary = fv
+        if      (fv == "|") { cur = fn; in_block = 1; block = "" }
+        else if (fv == "")  { cur = fn; in_list  = 1 }
+        next
+    }
+
+    END { write_ref() }
+    ' "$f"
+}
+
+# ─── main ─────────────────────────────────────────────────────────────────────
+
+# Step 1: reference files — run awk at top-level (not inside a function) so
+# gawk file writes are not affected by bash function subshell context.
+for sk in php-antipatterns go-antipatterns python-antipatterns \
+           ts-react-antipatterns node-antipatterns sql-antipatterns \
+           iac-antipatterns jvm-antipatterns csharp-antipatterns \
+           ruby-antipatterns rust-antipatterns agent-discipline; do
+    mkdir -p "${SKILLS_DIR}/${sk}/reference"
+done
+
+_REF_CATALOG="$CATALOG"
+_REF_SDIR="$SKILLS_DIR"
+generate_reference_files "$_REF_CATALOG" "$_REF_SDIR"
+
+# Step 2: parse skill-level records and build per-skill buckets
+declare -A skill_buckets=()
+declare -A seen_skills=()
+
+while IFS="$FS" read -r eid elang ecat esev eprev esl; do
+    [ -n "$eid" ] || continue
+    local_skills=""
+    tags="$(lang_tags "$elang")"
+    for tag in $tags; do
+        sk="$(lang_to_skill "$tag")"
+        [ -n "$sk" ] || continue
+        case " ${local_skills} " in *" ${sk} "*) ;; *) local_skills="${local_skills} ${sk}" ;; esac
+    done
+    for sk in $local_skills; do
+        seen_skills["$sk"]=1
+        rec="${eid}${FS}${elang}${FS}${ecat}${FS}${esev}${FS}${eprev}${FS}${esl}"
+        if [ -n "${skill_buckets[$sk]:-}" ]; then
+            skill_buckets["$sk"]+=$'\n'"$rec"
+        else
+            skill_buckets["$sk"]="$rec"
+        fi
+    done
+done < <(parse_skill_records "$CATALOG")
+
+# Step 3: generate SKILL.md per skill
+for sk in "${!seen_skills[@]}"; do
+    gen_skill_md "$sk" <<< "${skill_buckets[$sk]:-}"
+done
+
+# ─── idempotency check ────────────────────────────────────────────────────────
+if $CHECK_MODE; then
+    printf 'gen-skills: --check: verifying idempotency (second run)...\n'
+
+    # Capture checksums before second run
+    TMP_DIR="$(mktemp -d)"
+    trap 'rm -rf "$TMP_DIR"' EXIT
+
+    # Hash all SKILL.md files
+    find "$SKILLS_DIR" -name 'SKILL.md' | sort | while read -r f; do
+        md5sum "$f" 2>/dev/null || true
+    done > "${TMP_DIR}/before.md5"
+
+    # Second run (same catalog, same skills_dir)
+    generate_reference_files "$CATALOG" "$SKILLS_DIR"
+    for sk in "${!seen_skills[@]}"; do
+        gen_skill_md "$sk" <<< "${skill_buckets[$sk]:-}" 2>/dev/null
+    done
+
+    find "$SKILLS_DIR" -name 'SKILL.md' | sort | while read -r f; do
+        md5sum "$f" 2>/dev/null || true
+    done > "${TMP_DIR}/after.md5"
+
+    if diff "${TMP_DIR}/before.md5" "${TMP_DIR}/after.md5" > "${TMP_DIR}/diff.txt" 2>&1; then
+        printf 'gen-skills: --check PASSED: output is deterministic.\n'
+    else
+        printf 'gen-skills: --check FAILED: checksums differ between runs:\n' >&2
+        cat "${TMP_DIR}/diff.txt" >&2
+        exit 1
+    fi
+fi
+
+printf 'gen-skills: done.\n'

@@ -1,0 +1,161 @@
+---
+# rules/opengrep/csharp.yaml — C# (.NET) security antipattern rules.
+# License: MIT. Written from scratch; does not copy or paraphrase Semgrep Registry content.
+# Opengrep is not installed in the authoring environment; patterns are syntactic (no taint mode).
+# Tier 2 rule set. Individual AP-CS-* IDs will be confirmed in Etap 5 catalog.
+rules:
+  - id: slopguard.cs.sql-string-interpolation
+    languages: [csharp]
+    message: >-
+      SqlCommand or ExecuteSql called with an interpolated string ($"...{var}...")
+      or string concatenation. Embedding user values in SQL enables injection.
+      Use SqlParameter or an ORM with parameterized queries instead.
+    severity: ERROR
+    metadata:
+      ap_id: AP-CS-SEC-001
+      category: security
+      cwe: CWE-89
+    pattern-either:
+      - pattern: new SqlCommand($"...", $CONN)
+      - pattern: new SqlCommand($SQL + $VAR, $CONN)
+      - pattern: $CMD.CommandText = $"..."
+      - pattern: $CMD.CommandText = $SQL + $VAR
+      - pattern: $CTX.Database.ExecuteSql($"...")
+      - pattern: $CTX.Database.ExecuteSqlRaw($SQL + $VAR)
+
+  - id: slopguard.cs.binary-formatter
+    languages: [csharp]
+    message: >-
+      BinaryFormatter and NetDataContractSerializer are unsafe deserializers
+      that can execute arbitrary code when deserializing attacker-controlled
+      data. They are deprecated in .NET 5+. Replace with System.Text.Json
+      or XmlSerializer with a known type list.
+    severity: ERROR
+    metadata:
+      ap_id: AP-CS-SEC-002
+      category: security
+      cwe: CWE-502
+    pattern-either:
+      - pattern: new BinaryFormatter()
+      - pattern: new NetDataContractSerializer()
+      - pattern: new SoapFormatter()
+      - pattern: new LosFormatter()
+      - pattern: $BF.Deserialize($STREAM)
+
+  - id: slopguard.cs.process-start-user-input
+    languages: [csharp]
+    message: >-
+      Process.Start called with user-controlled input. Shell injection is
+      possible if the input is passed as a command string. Pass command and
+      arguments separately with UseShellExecute = false and avoid user-controlled
+      file names or arguments without validation.
+    severity: ERROR
+    metadata:
+      ap_id: AP-CS-SEC-003
+      category: security
+      cwe: CWE-78
+    pattern-either:
+      - pattern: Process.Start($CMD + $VAR)
+      - pattern: Process.Start($"...")
+      - pattern: |
+          new ProcessStartInfo($CMD + $VAR)
+      - pattern: |
+          new ProcessStartInfo($"...")
+      - pattern: |
+          new ProcessStartInfo { FileName = $VAR, ... }
+
+  - id: slopguard.cs.path-traversal
+    languages: [csharp]
+    message: >-
+      File path constructed from user input without canonicalization. An attacker
+      can use ../ sequences to read or write files outside the intended directory.
+      Use Path.GetFullPath() and verify the result starts with the expected base
+      directory before any file operation.
+    severity: ERROR
+    metadata:
+      ap_id: AP-CS-SEC-004
+      category: security
+      cwe: CWE-22
+    pattern-either:
+      - pattern: File.ReadAllText($"...")
+      - pattern: File.WriteAllText($"...", ...)
+      - pattern: File.Open($"...", ...)
+      - pattern: File.ReadAllText($PATH + $VAR)
+      - pattern: File.WriteAllText($PATH + $VAR, ...)
+      - pattern: new FileStream($"...", ...)
+
+  - id: slopguard.cs.crypto-weak-algorithm
+    languages: [csharp]
+    message: >-
+      MD5, SHA1, DES, and RC2 are cryptographically broken. Use SHA-256 or
+      stronger for hashing, AES-GCM for symmetric encryption, and
+      Rfc2898DeriveBytes (PBKDF2) or BCrypt for password hashing.
+    severity: ERROR
+    metadata:
+      ap_id: AP-CS-SEC-005
+      category: security
+      cwe: CWE-327
+    pattern-either:
+      - pattern: MD5.Create()
+      - pattern: MD5.HashData(...)
+      - pattern: SHA1.Create()
+      - pattern: SHA1.HashData(...)
+      - pattern: DES.Create()
+      - pattern: RC2.Create()
+      - pattern: new MD5CryptoServiceProvider()
+      - pattern: new SHA1Managed()
+
+  - id: slopguard.cs.insecure-random
+    languages: [csharp]
+    message: >-
+      System.Random is not cryptographically secure. For tokens, keys, or
+      nonces use System.Security.Cryptography.RandomNumberGenerator.GetBytes()
+      or the static RandomNumberGenerator.GetInt32() helper.
+    severity: ERROR
+    metadata:
+      ap_id: AP-CS-SEC-006
+      category: security
+      cwe: CWE-338
+    pattern-either:
+      - pattern: new Random()
+      - pattern: new Random($SEED)
+      - pattern: $RNG.Next(...)
+      - pattern: $RNG.NextBytes(...)
+
+  - id: slopguard.cs.xxe-xml
+    languages: [csharp]
+    message: >-
+      XmlDocument or XmlReader loaded without disabling DTD processing. Parsing
+      attacker-controlled XML with external entities enabled allows XXE attacks.
+      Set XmlReaderSettings.DtdProcessing = DtdProcessing.Prohibit.
+    severity: ERROR
+    metadata:
+      ap_id: AP-CS-SEC-007
+      category: security
+      cwe: CWE-611
+    pattern-either:
+      - patterns:
+          - pattern: new XmlDocument()
+          - pattern-not: |
+              $DOC.XmlResolver = null;
+      - pattern: XmlReader.Create($INPUT)
+
+  - id: slopguard.cs.ldap-injection
+    languages: [csharp]
+    message: >-
+      LDAP filter or DN constructed by string concatenation. Special LDAP
+      characters in user input can alter the filter logic. Use
+      DirectorySearcher with the value placed via typed parameters, or
+      escape the value with System.DirectoryServices.Protocols.LdapConnection.
+    severity: ERROR
+    metadata:
+      ap_id: AP-CS-SEC-008
+      category: security
+      cwe: CWE-90
+    pattern-either:
+      - pattern: |
+          new DirectorySearcher($FILTER + $VAR)
+      - pattern: |
+          new DirectorySearcher($"...")
+      - pattern: $SEARCHER.Filter = $FILTER + $VAR
+      - pattern: $SEARCHER.Filter = $"..."

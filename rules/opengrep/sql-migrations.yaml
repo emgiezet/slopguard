@@ -1,0 +1,57 @@
+---
+# rules/opengrep/sql-migrations.yaml — Database migration antipattern rules.
+# License: MIT. Written from scratch; does not copy or paraphrase Semgrep Registry content.
+# Opengrep is not installed in the authoring environment; patterns are syntactic (no taint mode).
+rules:
+  - id: slopguard.laravel.migration-fk-without-index
+    languages: [php]
+    message: >-
+      Foreign key column added without a corresponding index. Queries joining or
+      filtering on an un-indexed FK column perform full table scans. Call
+      $table->index(['column_id']) after $table->foreignId('column_id').
+    severity: WARNING
+    metadata:
+      ap_id: AP-SQL-004
+      category: performance
+    pattern-either:
+      - patterns:
+          - pattern: |
+              Schema::create($TABLE, function (Blueprint $TABLE_VAR) {
+                ...
+                $TABLE_VAR->foreignId($COL);
+                ...
+              });
+          - pattern-not: |
+              Schema::create($TABLE, function (Blueprint $TABLE_VAR) {
+                ...
+                $TABLE_VAR->foreignId($COL)->constrained(...);
+                ...
+              });
+      - patterns:
+          - pattern: |
+              Schema::table($TABLE, function (Blueprint $TABLE_VAR) {
+                ...
+                $TABLE_VAR->unsignedBigInteger($COL);
+                ...
+                $TABLE_VAR->foreign($COL)->references(...)->on(...);
+                ...
+              });
+          - pattern-not: |
+              Schema::table($TABLE, function (Blueprint $TABLE_VAR) {
+                ...
+                $TABLE_VAR->index($COL);
+                ...
+              });
+
+  - id: slopguard.migration.not-null-without-default
+    languages: [sql]
+    message: >-
+      ADD COLUMN with NOT NULL and no DEFAULT on a populated table requires a
+      full rewrite and an exclusive lock. Either add the column nullable first,
+      backfill values, then add the constraint; or provide a DEFAULT to avoid
+      the table rewrite (PostgreSQL 11+ handles constant defaults online).
+    severity: WARNING
+    metadata:
+      ap_id: AP-SQL-003
+      category: performance
+    pattern-regex: 'ADD\s+COLUMN\s+\w+\s+\w+(\s+\w+)?\s+NOT\s+NULL\b(?!\s+DEFAULT\b)'

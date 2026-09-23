@@ -25,3 +25,25 @@ drafted or a stage is planned.
   SCA tool for tier-2 languages and will be added to `tools.lock.json` together with the Stop
   gate handler in Stage 4. Not added now because the Stop gate (`hooks/hooks.json` entry +
   handler) does not yet exist; pinning an uncalled binary wastes an install slot.
+
+- **Windows launcher (D28):** `hooks/hooks.json` calls `bin/slopguard` in exec-form; `bin/slopguard`
+  is a bash script. To support Windows, MediumTier needs to add `bin/slopguard.cmd` (a batch
+  wrapper invoking `bash.exe` from WSL or Git for Windows) and either update the `command` field
+  in `hooks/hooks.json` or use the shell form for Windows entries. Without this, Windows users
+  must have WSL available and launch Claude Code through it. Tested only on Linux and macOS
+  in version 0.1.0.
+
+- **SCA tools for Stop gate (Etap 0 follow-up):** `govulncheck`, `composer audit`, `npm audit`,
+  `pip-audit`, and `osv-scanner` are absent from `tools.lock.json`. Each requires an Etap 0 PR
+  adding URL + sha256 per platform before the Stop gate can wire the call. `osv-scanner` in
+  particular covers tier-2 ecosystems (Cargo, Maven, NuGet, RubyGems) that the individual
+  ecosystem auditors do not reach (D16 follow-up). Pin and wire these in priority order:
+  govulncheck first (Go; already planned in D16), then pip-audit (Python), then osv-scanner
+  (tier 2 SCA), then `tsc` as a standalone CLI pin.
+
+- **`tsc --noEmit` in Stop gate:** TypeScript compiler is not separately pinned; `eslint-stack`
+  delivers `node_modules/.bin/tsc` through its node_lock but the Stop gate needs a stable
+  version-checked invocation. Options: (a) add `typescript` explicitly to `tools/node/package-lock.json`
+  with a version pin, then call it as `node_modules/.bin/tsc --noEmit`; (b) add a separate
+  `tsc` entry in `tools.lock.json`. Option (a) is lower overhead since the Node environment
+  is already managed.

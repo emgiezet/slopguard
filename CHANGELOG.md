@@ -3,6 +3,40 @@
 All notable changes to Slop Guard will be documented in this file.
 
 ## Unreleased
+- **Etap 6 — Hardening and distribution (partial)** (2026-09-23)
+  - `docs/slop-guard-spec.md`: §11.2 updated — eval cases exist as specifications; the 0.8 threshold is the target, not a measured result; maintainer command documented. §11.3 Etap 3–6: stage records added for what shipped and what did not; every unwired tool named as Etap 0 work.
+  - `plugins/slop-guard/docs/decisions.md`: D25–D28 added (unwired tools policy; Stop gate cap; eval threshold status; Windows launcher deferred).
+  - `plugins/slop-guard/docs/ideas.md`: Windows launcher blocker recorded with specific steps needed; SCA tool pinning priority order; `tsc` pin options.
+  - `README.md`: Slop Guard section extended with detection tiers (fast/medium/slow — what each runs and when), Stop gate enforcement modes and loop-protection cap, prevention skills table.
+  - `plugins/slop-guard/docs/recommended-project-settings.json`: `$comment_stop_gate` added — Stop gate is a plugin option, not a `settings.json` key; guidance for strict teams and `stop_gate: false` opt-out.
+  - **Windows launcher blocked (D28).** `hooks/hooks.json` references `bin/slopguard` in exec-form; `bin/slopguard` is a bash script. A real Windows batch companion (`bin/slopguard.cmd`) is required but owned by MediumTier. The sdlc `run-hook.cmd` is itself a bash script and does not transfer. Windows unsupported in 0.1.0; deferred to MediumTier for the next milestone.
+  - **Why unpinned tools were left out (D25).** Pyright, `tsc`, govulncheck, `composer audit`, `npm audit`, pip-audit, and osv-scanner are absent from `tools.lock.json`. Wiring a call to an arbitrary PATH binary — not pinned by URL + sha256 — reintroduces exactly the supply-chain risk the tool-pinning policy exists to prevent. The dispatcher skips each missing tool with a `slopguard: <tool> unavailable` note (Z6 fail-open); the gap is visible in `slopguard doctor`. The fix is an Etap 0 PR per tool, not a runtime shim.
+- **Etap 5 — Prevention: catalog, generated skills, security subagent** (2026-09-23)
+  - `rules/catalog.yaml` (new): full anti-pattern seed from spec §8 — tier-1 stacks (PHP, Go, Python, TS/React, Node, SQL, IaC, CI, agent-discipline) and tier-2 stacks (JVM, C#, Ruby, Rust) for languages that passed the Etap 0 Opengrep probe. Every tier-1 entry with a `detect` field has a `bad`/`good` fixture pair.
+  - `scripts/gen-skills` (new): reads `rules/catalog.yaml`, emits `skills/*/SKILL.md` capped at 150 lines / 3000 tokens; aborts with a non-zero exit on overflow rather than truncating silently. Generates `reference/<ID>.md` per entry with `prevent_in_skill: true`.
+  - Tier-1 skills generated: `php-antipatterns`, `go-antipatterns`, `python-antipatterns`, `ts-react-antipatterns`, `node-antipatterns`, `sql-antipatterns`, `iac-antipatterns`; each with `paths` frontmatter and `reference/` directory.
+  - Tier-2 skills generated (per languages passing Etap 0 probe): `jvm-antipatterns`, `csharp-antipatterns`, `ruby-antipatterns`, `rust-antipatterns`.
+  - Skill `agent-discipline` (no `paths` — always available): AP-AGENT-001–AP-AGENT-010, injected by `session-start` within the 15-line / 1500-character budget.
+  - `agents/security-reviewer.md` (new): read-only subagent with `disallowedTools: Write, Edit`; invoked by `/slop-guard:secure-review` (`context: fork`).
+  - **Why eval threshold is unverified (D27).** `claude plugin eval` requires a live API key and incurs model-call costs. The eight eval cases define prompts, graders, and scaffold scripts; the 0.8 threshold is the stated gate for 1.0 release. Running them is a pre-release step documented in §11.2, not an offline CI check.
+- **Etap 4 — Stop gate** (2026-09-23)
+  - `lib/stop.sh` (new): `stop_main` — runs slow checks on files changed in the session, enforces loop protection (max 2 iterations via `stop-iterations` session counter), emits final-turn report (unresolved blockers, added suppressions, lines changed outside finding hunks).
+  - `hooks/hooks.json`: `Stop` entry added — calls `slopguard stop-gate`, timeout 600 s. `hooks/hooks.json` also gains the `PostToolUse` medium-tier entry with `asyncRewake: true` (Etap 3, same commit batch).
+  - `bin/slopguard`: `stop-gate` subcommand added (sources `lib/stop.sh`, calls `stop_main`).
+  - Wired tools (all in `tools.lock.json`): **Psalm taint** (`--taint-analysis --output-format=json`) — PHP dataflow; **Checkov** (directory-level scan of changed IaC/Docker/CI dirs); **Betterleaks** (full session-diff secret scan).
+  - `slopguard deps-check` wired into Stop gate — runs when any dependency manifest (composer.lock, package-lock.json, go.sum, Pipfile.lock, Cargo.lock) changed in the session; verdicts `too-fresh` and `major-behind` reported per §7.7.
+  - AP-AGENT-010 session check: at `require_docs_lookup=true`, framework files edited without a recorded Context7 lookup produce a `warn` in the final report — never a `deny`.
+  - `tests/stop_test.sh` (new): assertions covering `stop_hook_active` short-circuit, iteration cap, advisory/balanced/strict modes, deps-check wiring.
+  - **Why SCA tools are absent (D25).** govulncheck, `composer audit`, `npm audit`, pip-audit, and osv-scanner are not in `tools.lock.json`. The Stop gate logs `slopguard: <tool> unavailable` and passes through (Z6). See `docs/ideas.md` for the pinning priority order.
+- **Etap 3 — Medium-tier detection (asyncRewake)** (2026-09-23)
+  - `lib/dispatch.sh`: `dispatch_medium` function added — debounces a batch of edits by 3 s, routes changed files to medium-tier tools by stack, applies per-tool timeout, exits 2 with stderr only when new findings meet the threshold (triggering asyncRewake back to the agent).
+  - `hooks/hooks.json`: second `PostToolUse` entry added — `asyncRewake: true`, no platform timeout (dispatcher manages time internally per §3.2).
+  - `bin/slopguard`: `post-write --tier=medium` delegates to `dispatch_medium`.
+  - Wired tools (all in `tools.lock.json`): **PHPStan** (level 8; `--level=max` for new untracked files) — PHP; **golangci-lint** (`--new-from-rev` restricts findings to changed packages) — Go; **ESLint with type-info** (eslint-stack + tsconfig path) — TS/JS; **tflint** (AWS ruleset) — Terraform; **Checkov** (file-level) — IaC/Docker/CI; **Opengrep** (own rules `rules/opengrep/`, same `--config` invocation for tier 1 and tier 2).
+  - `rules/opengrep/`: own MIT SAST rules — one file per language, each validated by `opengrep --validate` and tested by `opengrep --test`. Tier-2 rules (AP-JVM-*, AP-CS-*, AP-RB-*, AP-RS-*) included for languages that passed the Etap 0 Opengrep parser probe.
+  - `rules/mapping/{phpstan,golangci,opengrep}.yaml`: rule-id → AP-id, severity, category, CWE mappings for medium-tier tools.
+  - `tests/medium_test.sh` (new): assertions covering debounce logic, per-tool routing, asyncRewake threshold, fail-open on timeout/missing binary, end-to-end §4.7 format.
+  - **Why Pyright is absent (D25).** Pyright is the planned Python type-checker fallback (D7) but is not in `tools.lock.json`. An Etap 0 PR adding it with URL + sha256 per platform is the prerequisite. Until then the medium dispatcher logs `slopguard: pyright unavailable` and passes through.
 - **Extension mechanism: `.slopguard/`** (2026-09-23)
   - `lib/ext.sh` (new): `ext_dir` (extension root, honoring `SLOPGUARD_EXT_DIR`), `ext_load_mapping` (merges plugin + project mapping overrides, outputs NDJSON per rule), `ext_tools` (loads and validates tool descriptors, returns one NDJSON object per descriptor with `resolved` and `status` fields), `ext_validate` (exit 0 if a descriptor or mapping file is structurally valid), `ext_override_counts` (total overrides + severity downgrade count).
   - Two extension classes: **(A)** `.slopguard/mapping/<tool>.yaml` — project patches plugin's `rules/mapping/<tool>.yaml` field by field (same schema; partial entries allowed); **(B)** `.slopguard/tools/<name>.yaml` — full descriptor for a linter the plugin does not pin.

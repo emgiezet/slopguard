@@ -69,6 +69,24 @@
             "command": "${CLAUDE_PLUGIN_ROOT}/bin/slopguard",
             "args": ["post-write", "--tier=fast"],
             "timeout": 20
+          },
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/bin/slopguard",
+            "args": ["post-write", "--tier=medium"],
+            "asyncRewake": true
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/bin/slopguard",
+            "args": ["stop-gate"],
+            "timeout": 600
           }
         ]
       }

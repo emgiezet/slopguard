@@ -761,3 +761,557 @@ dispatch_fast() {
 
     return 0
 }
+
+# =========================================================================== #
+# Medium-tier dispatcher (Etap 3, §11.3)
+# =========================================================================== #
+
+# --------------------------------------------------------------------------- #
+# Medium-tier helpers
+# --------------------------------------------------------------------------- #
+
+# _dispatch_medium_timeout
+# Per-tool timeout for medium-tier tools (default 45 s).
+_dispatch_medium_timeout() { printf '%s' "${SLOPGUARD_MEDIUM_TOOL_TIMEOUT:-45}"; }
+
+# _dispatch_medium_pending_key <session_id> <agent_id> <file>
+# Print the path to the debounce token file for this file.
+_dispatch_medium_pending_key() {
+    local session_id="$1" agent_id="$2" file="$3"
+    local dir; dir="$(state_dir "$session_id" "$agent_id")"
+    local fhash; fhash="$(_dispatch_sha256 "$file" 2>/dev/null | head -c16 || printf 'nohash')"
+    printf '%s/.medium-pending-%s' "$dir" "$fhash"
+}
+
+# --------------------------------------------------------------------------- #
+# Medium-tier tool runners
+# --------------------------------------------------------------------------- #
+
+# _dispatch_run_phpstan  file session_id agent_id project_dir
+#                        is_untracked changed_ranges findings_out
+_dispatch_run_phpstan() {
+    local file="$1" session_id="$2" agent_id="$3" project_dir="$4"
+    local is_untracked="$5" changed_ranges="$6" findings_out="$7"
+
+    local tool_bin; tool_bin="$(CLAUDE_PROJECT_DIR="$project_dir" resolve_tool phpstan 2>/dev/null || true)"
+    if [ -z "$tool_bin" ]; then
+        if ! _dispatch_tool_unavail_seen "$session_id" "$agent_id" phpstan; then
+            _dispatch_tool_unavail_mark "$session_id" "$agent_id" phpstan
+            printf 'slopguard: phpstan unavailable — run: slopguard doctor --install\n' >&2
+        fi
+        return 0
+    fi
+
+    local config; config="$(tool_config_path phpstan "$project_dir")"
+    # New/untracked files use --level=max per spec §6.1.
+    local level_args=""
+    [ "$is_untracked" -eq 1 ] && level_args="--level=max"
+
+    local raw exit_code=0
+    raw="$(timeout "$(_dispatch_medium_timeout)" \
+        "$tool_bin" analyse --error-format=json --no-progress --memory-limit=1G \
+        -c "$config" $level_args "$file" 2>/dev/null)" || exit_code=$?
+    # 0 = no errors, 1 = errors found; others = tool crash/config error → fail-open.
+    [ "$exit_code" -eq 0 ] || [ "$exit_code" -eq 1 ] || return 0
+    [ -n "$raw" ] || return 0
+
+    local mapping="${CLAUDE_PLUGIN_ROOT}/rules/mapping/phpstan.yaml"
+
+    local rule_id msg line ap_id severity category cwe_str cwe_json fix snippet lookup
+    while IFS=$'\t' read -r rule_id msg line; do
+        [ -n "$rule_id" ] || continue
+        snippet="$(printf '%s' "$msg" | head -c 120)"
+        lookup="$(_dispatch_map_lookup "$mapping" "$rule_id")"
+        if [ -n "$lookup" ]; then
+            IFS=$'\t' read -r ap_id severity category cwe_str <<< "$lookup"
+            cwe_json="$(_dispatch_cwe_json "$cwe_str")"
+        else
+            ap_id="AP-PHP-LINT-000"
+            category="maintainability"
+            severity="$(_dispatch_default_severity "$category")"
+            cwe_json='[]'
+        fi
+        fix=""
+        _dispatch_filter_emit \
+            "$session_id" "$agent_id" "$ap_id" "phpstan" "$rule_id" \
+            "$category" "$severity" "$cwe_json" \
+            "$file" "$line" "$line" "$msg" "$fix" "$snippet" \
+            "$is_untracked" "$changed_ranges" "$findings_out"
+    done <<< "$(printf '%s\n' "$raw" \
+        | jq -r '.files // {} | to_entries[] |
+            .value.messages[] |
+            [(.identifier // "phpstan-error"), .message, (.line|tostring)] | @tsv' \
+        2>/dev/null || true)"
+}
+
+# _dispatch_run_golangci_lint  file session_id agent_id project_dir
+#                               is_untracked changed_ranges findings_out
+# Runs on the Go package containing file.  For tracked files uses
+# --new-from-rev=HEAD (Z2 natively); for untracked runs without it.
+_dispatch_run_golangci_lint() {
+    local file="$1" session_id="$2" agent_id="$3" project_dir="$4"
+    local is_untracked="$5" changed_ranges="$6" findings_out="$7"
+
+    local tool_bin; tool_bin="$(CLAUDE_PROJECT_DIR="$project_dir" resolve_tool golangci-lint 2>/dev/null || true)"
+    if [ -z "$tool_bin" ]; then
+        if ! _dispatch_tool_unavail_seen "$session_id" "$agent_id" golangci-lint; then
+            _dispatch_tool_unavail_mark "$session_id" "$agent_id" golangci-lint
+            printf 'slopguard: golangci-lint unavailable — run: slopguard doctor --install\n' >&2
+        fi
+        return 0
+    fi
+
+    local config; config="$(tool_config_path golangci-lint "$project_dir")"
+
+    # Compute the Go package path relative to project_dir.
+    local file_dir; file_dir="$(dirname "$file")"
+    local pkg_arg="./..."
+    local _suffix="${file_dir#${project_dir}}"
+    case "$_suffix" in
+        /*)
+            # file_dir is under project_dir; strip leading slash.
+            _suffix="${_suffix#/}"
+            [ -n "$_suffix" ] && pkg_arg="./${_suffix}/..." || pkg_arg="./..."
+            ;;
+        *) pkg_arg="./..." ;;  # not under project_dir or same
+    esac
+
+    # --new-from-rev=HEAD implements Z2 natively for tracked files (spec §6.2).
+    local rev_arg=""
+    [ "$is_untracked" -eq 0 ] && rev_arg="--new-from-rev=HEAD"
+
+    local raw exit_code=0
+    raw="$(timeout "$(_dispatch_medium_timeout)" \
+        "$tool_bin" run --config "$config" \
+        --output.json.path=stdout --show-stats=false \
+        $rev_arg "$pkg_arg" 2>/dev/null)" || exit_code=$?
+    [ "$exit_code" -eq 0 ] || [ "$exit_code" -eq 1 ] || return 0
+    [ -n "$raw" ] || return 0
+
+    local mapping="${CLAUDE_PLUGIN_ROOT}/rules/mapping/golangci-lint.yaml"
+
+    # With --new-from-rev=HEAD the tool already applied Z2; pass empty ranges so
+    # _dispatch_filter_emit treats every finding as in-range.
+    local eff_untracked="$is_untracked"
+    local eff_changed_ranges="$changed_ranges"
+    [ "$is_untracked" -eq 0 ] && eff_changed_ranges=""
+
+    local rule_id msg line fname ap_id severity category cwe_str cwe_json fix snippet lookup
+    while IFS=$'\t' read -r rule_id msg line fname; do
+        [ -n "$rule_id" ] || continue
+        # Resolve finding file to absolute path.
+        local finding_file
+        case "$fname" in
+            /*) finding_file="$fname" ;;
+            *)  finding_file="${project_dir}/${fname}" ;;
+        esac
+        snippet="$(printf '%s' "$msg" | head -c 120)"
+        lookup="$(_dispatch_map_lookup "$mapping" "$rule_id")"
+        if [ -n "$lookup" ]; then
+            IFS=$'\t' read -r ap_id severity category cwe_str <<< "$lookup"
+            cwe_json="$(_dispatch_cwe_json "$cwe_str")"
+        else
+            ap_id="AP-GO-LINT-000"
+            category="maintainability"
+            severity="$(_dispatch_default_severity "$category")"
+            cwe_json='[]'
+        fi
+        fix=""
+        _dispatch_filter_emit \
+            "$session_id" "$agent_id" "$ap_id" "golangci-lint" "$rule_id" \
+            "$category" "$severity" "$cwe_json" \
+            "$finding_file" "$line" "$line" "$msg" "$fix" "$snippet" \
+            "$eff_untracked" "$eff_changed_ranges" "$findings_out"
+    done <<< "$(printf '%s\n' "$raw" \
+        | jq -r '.Issues[]? |
+            (if .FromLinter == "gosec" then
+                "gosec:" + (.Text |
+                    [match("G[0-9]+")] |
+                    if length > 0 then .[0].string else "" end)
+             else .FromLinter
+             end) as $rule_id |
+            [$rule_id, .Text, (.Pos.Line|tostring), (.Pos.Filename // "")] | @tsv' \
+        2>/dev/null || true)"
+}
+
+# _dispatch_run_eslint_typed  file session_id agent_id project_dir
+#                              is_untracked changed_ranges findings_out
+# Like eslint-stack but with SLOPGUARD_TYPED_LINT=1; uses eslint-typed.yaml
+# first, falls back to eslint.yaml for common rules.
+_dispatch_run_eslint_typed() {
+    local file="$1" session_id="$2" agent_id="$3" project_dir="$4"
+    local is_untracked="$5" changed_ranges="$6" findings_out="$7"
+
+    local tool_bin; tool_bin="$(CLAUDE_PROJECT_DIR="$project_dir" resolve_tool eslint-stack 2>/dev/null || true)"
+    if [ -z "$tool_bin" ]; then
+        if ! _dispatch_tool_unavail_seen "$session_id" "$agent_id" eslint-typed; then
+            _dispatch_tool_unavail_mark "$session_id" "$agent_id" eslint-typed
+            printf 'slopguard: eslint (typed) unavailable — run: slopguard doctor --install\n' >&2
+        fi
+        return 0
+    fi
+
+    local config; config="$(tool_config_path eslint-stack "$project_dir")"
+    local raw exit_code=0
+    raw="$(timeout "$(_dispatch_medium_timeout)" \
+        env SLOPGUARD_TYPED_LINT=1 \
+        "$tool_bin" --config "$config" --format json --no-warn-ignored \
+        "$file" 2>/dev/null)" || exit_code=$?
+    [ "$exit_code" -eq 0 ] || [ "$exit_code" -eq 1 ] || return 0
+    [ -n "$raw" ] || return 0
+
+    local typed_mapping="${CLAUDE_PLUGIN_ROOT}/rules/mapping/eslint-typed.yaml"
+    local common_mapping="${CLAUDE_PLUGIN_ROOT}/rules/mapping/eslint.yaml"
+
+    local rule_id msg line endline ap_id severity category cwe_str cwe_json fix snippet lookup
+    while IFS=$'\t' read -r rule_id msg line endline; do
+        [ -n "$rule_id" ] || continue
+        snippet="$(printf '%s' "$msg" | head -c 120)"
+        # Try typed-specific mapping first, then common ESLint mapping.
+        lookup="$(_dispatch_map_lookup "$typed_mapping" "$rule_id")"
+        [ -z "$lookup" ] && lookup="$(_dispatch_map_lookup "$common_mapping" "$rule_id")"
+        if [ -n "$lookup" ]; then
+            IFS=$'\t' read -r ap_id severity category cwe_str <<< "$lookup"
+            cwe_json="$(_dispatch_cwe_json "$cwe_str")"
+        else
+            ap_id="AP-TS-LINT-000"
+            category="maintainability"
+            severity="$(_dispatch_default_severity "$category")"
+            cwe_json='[]'
+        fi
+        fix=""
+        _dispatch_filter_emit \
+            "$session_id" "$agent_id" "$ap_id" "eslint-typed" "$rule_id" \
+            "$category" "$severity" "$cwe_json" \
+            "$file" "$line" "${endline:-$line}" "$msg" "$fix" "$snippet" \
+            "$is_untracked" "$changed_ranges" "$findings_out"
+    done <<< "$(printf '%s\n' "$raw" \
+        | jq -r '.[] | .messages[] |
+            [.ruleId // "unknown", .message,
+             (.line|tostring), ((.endLine // .line)|tostring)] | @tsv' \
+        2>/dev/null || true)"
+}
+
+# _dispatch_run_tflint  file session_id agent_id project_dir
+#                        is_untracked changed_ranges findings_out
+_dispatch_run_tflint() {
+    local file="$1" session_id="$2" agent_id="$3" project_dir="$4"
+    local is_untracked="$5" changed_ranges="$6" findings_out="$7"
+
+    local tool_bin; tool_bin="$(CLAUDE_PROJECT_DIR="$project_dir" resolve_tool tflint 2>/dev/null || true)"
+    if [ -z "$tool_bin" ]; then
+        if ! _dispatch_tool_unavail_seen "$session_id" "$agent_id" tflint; then
+            _dispatch_tool_unavail_mark "$session_id" "$agent_id" tflint
+            printf 'slopguard: tflint unavailable — run: slopguard doctor --install\n' >&2
+        fi
+        return 0
+    fi
+
+    local config; config="$(tool_config_path tflint "$project_dir")"
+    local file_dir; file_dir="$(dirname "$file")"
+
+    local raw exit_code=0
+    raw="$(timeout "$(_dispatch_medium_timeout)" \
+        env TFLINT_PLUGIN_DIR="${SLOPGUARD_CACHE_DIR:-${CLAUDE_PLUGIN_DATA}/cache}/tflint" \
+        "$tool_bin" --config "$config" --format json --chdir "$file_dir" \
+        2>/dev/null)" || exit_code=$?
+    [ "$exit_code" -eq 0 ] || [ "$exit_code" -eq 1 ] || return 0
+    [ -n "$raw" ] || return 0
+
+    local mapping="${CLAUDE_PLUGIN_ROOT}/rules/mapping/tflint.yaml"
+
+    local rule_id msg line ap_id severity category cwe_str cwe_json fix snippet lookup
+    while IFS=$'\t' read -r rule_id msg line; do
+        [ -n "$rule_id" ] || continue
+        snippet="$(printf '%s' "$msg" | head -c 120)"
+        lookup="$(_dispatch_map_lookup "$mapping" "$rule_id")"
+        if [ -n "$lookup" ]; then
+            IFS=$'\t' read -r ap_id severity category cwe_str <<< "$lookup"
+            cwe_json="$(_dispatch_cwe_json "$cwe_str")"
+        else
+            ap_id="AP-TF-LINT-000"
+            category="security"
+            severity="$(_dispatch_default_severity "$category")"
+            cwe_json='[]'
+        fi
+        fix=""
+        _dispatch_filter_emit \
+            "$session_id" "$agent_id" "$ap_id" "tflint" "$rule_id" \
+            "$category" "$severity" "$cwe_json" \
+            "$file" "$line" "$line" "$msg" "$fix" "$snippet" \
+            "$is_untracked" "$changed_ranges" "$findings_out"
+    done <<< "$(printf '%s\n' "$raw" \
+        | jq -r '.issues[]? |
+            [.rule.name, .message, (.range.start.line|tostring)] | @tsv' \
+        2>/dev/null || true)"
+}
+
+# _dispatch_run_checkov  file session_id agent_id project_dir
+#                         is_untracked changed_ranges findings_out
+# Runs per-file (tier M); tier S runs --dir (StopGate, Etap 4).
+_dispatch_run_checkov() {
+    local file="$1" session_id="$2" agent_id="$3" project_dir="$4"
+    local is_untracked="$5" changed_ranges="$6" findings_out="$7"
+
+    local tool_bin; tool_bin="$(CLAUDE_PROJECT_DIR="$project_dir" resolve_tool checkov 2>/dev/null || true)"
+    if [ -z "$tool_bin" ]; then
+        if ! _dispatch_tool_unavail_seen "$session_id" "$agent_id" checkov; then
+            _dispatch_tool_unavail_mark "$session_id" "$agent_id" checkov
+            printf 'slopguard: checkov unavailable — run: slopguard doctor --install\n' >&2
+        fi
+        return 0
+    fi
+
+    local config; config="$(tool_config_path checkov "$project_dir")"
+    local raw exit_code=0
+    raw="$(timeout "$(_dispatch_medium_timeout)" \
+        "$tool_bin" --config-file "$config" -f "$file" 2>/dev/null)" || exit_code=$?
+    [ "$exit_code" -eq 0 ] || [ "$exit_code" -eq 1 ] || return 0
+    [ -n "$raw" ] || return 0
+
+    local mapping="${CLAUDE_PLUGIN_ROOT}/rules/mapping/checkov.yaml"
+
+    local check_id check_name line ap_id severity category cwe_str cwe_json fix snippet lookup
+    while IFS=$'\t' read -r check_id check_name line; do
+        [ -n "$check_id" ] || continue
+        snippet="$(printf '%s' "$check_name" | head -c 120)"
+        lookup="$(_dispatch_map_lookup "$mapping" "$check_id")"
+        if [ -n "$lookup" ]; then
+            IFS=$'\t' read -r ap_id severity category cwe_str <<< "$lookup"
+            cwe_json="$(_dispatch_cwe_json "$cwe_str")"
+        else
+            ap_id="AP-IAC-SEC-000"
+            category="security"
+            severity="$(_dispatch_default_severity "$category")"
+            cwe_json='[]'
+        fi
+        fix=""
+        _dispatch_filter_emit \
+            "$session_id" "$agent_id" "$ap_id" "checkov" "$check_id" \
+            "$category" "$severity" "$cwe_json" \
+            "$file" "$line" "$line" "$check_name" "$fix" "$snippet" \
+            "$is_untracked" "$changed_ranges" "$findings_out"
+    done <<< "$(printf '%s\n' "$raw" \
+        | jq -r '(if type == "array" then .[] else . end) |
+            .results.failed_checks[]? |
+            [.check_id, .check_name,
+             ((.file_line_range[0] // 0)|tostring)] | @tsv' \
+        2>/dev/null || true)"
+}
+
+# _dispatch_run_opengrep  file session_id agent_id project_dir
+#                          is_untracked changed_ranges findings_out
+# Multi-language SAST via Opengrep (§6.11, tier M).
+# Uses plugin rules from rules/opengrep/ plus optional project extensions
+# (ext_opengrep_rules from lib/ext.sh when sourced).
+_dispatch_run_opengrep() {
+    local file="$1" session_id="$2" agent_id="$3" project_dir="$4"
+    local is_untracked="$5" changed_ranges="$6" findings_out="$7"
+
+    local tool_bin; tool_bin="$(CLAUDE_PROJECT_DIR="$project_dir" resolve_tool opengrep 2>/dev/null || true)"
+    if [ -z "$tool_bin" ]; then
+        if ! _dispatch_tool_unavail_seen "$session_id" "$agent_id" opengrep; then
+            _dispatch_tool_unavail_mark "$session_id" "$agent_id" opengrep
+            printf 'slopguard: opengrep unavailable — run: slopguard doctor --install\n' >&2
+        fi
+        return 0
+    fi
+
+    local rules_dir="${CLAUDE_PLUGIN_ROOT}/rules/opengrep"
+    [ -d "$rules_dir" ] || return 0
+
+    # Optional project-local rules from .slopguard/opengrep/ (ext.sh §7.8).
+    local extra_rules=""
+    if declare -f ext_opengrep_rules >/dev/null 2>&1; then
+        extra_rules="$(ext_opengrep_rules "$project_dir" 2>/dev/null || true)"
+    fi
+
+    local raw exit_code=0
+    # shellcheck disable=SC2086  # extra_rules intentional word-split
+    raw="$(timeout "$(_dispatch_medium_timeout)" \
+        "$tool_bin" scan \
+        --config "$rules_dir" \
+        ${extra_rules:+--config "$extra_rules"} \
+        --json --metrics=off --quiet \
+        "$file" 2>/dev/null)" || exit_code=$?
+    # 0 = no findings, 1 = findings found; others = tool error → fail-open.
+    [ "$exit_code" -eq 0 ] || [ "$exit_code" -eq 1 ] || return 0
+    [ -n "$raw" ] || return 0
+
+    local mapping="${CLAUDE_PLUGIN_ROOT}/rules/mapping/opengrep.yaml"
+
+    local rule_id msg line meta_ap ap_id severity category cwe_str cwe_json fix snippet lookup
+    while IFS=$'\t' read -r rule_id msg line meta_ap; do
+        [ -n "$rule_id" ] || continue
+        snippet="$(printf '%s' "$msg" | head -c 120)"
+        lookup="$(_dispatch_map_lookup "$mapping" "$rule_id")"
+        if [ -n "$lookup" ]; then
+            IFS=$'\t' read -r ap_id severity category cwe_str <<< "$lookup"
+            cwe_json="$(_dispatch_cwe_json "$cwe_str")"
+        else
+            # Use ap_id from rule metadata when present (§6.11 extra.metadata.ap_id).
+            ap_id="${meta_ap:-}"
+            category="security"
+            severity="error"
+            cwe_json='[]'
+        fi
+        fix=""
+        _dispatch_filter_emit \
+            "$session_id" "$agent_id" "$ap_id" "opengrep" "$rule_id" \
+            "$category" "$severity" "$cwe_json" \
+            "$file" "$line" "$line" "$msg" "$fix" "$snippet" \
+            "$is_untracked" "$changed_ranges" "$findings_out"
+    done <<< "$(printf '%s\n' "$raw" \
+        | jq -r '.results[]? |
+            [.check_id, .extra.message, (.start.line|tostring),
+             (.extra.metadata.ap_id // "")] | @tsv' \
+        2>/dev/null || true)"
+}
+
+# --------------------------------------------------------------------------- #
+# Medium-tier tool selection
+# --------------------------------------------------------------------------- #
+
+# _dispatch_medium_tools_for_file <file>
+# Print space-separated list of medium-tier tools applicable to this file.
+_dispatch_medium_tools_for_file() {
+    local file="$1"
+    local filename="${file##*/}"
+    local ext="${filename##*.}"
+    local tools=""
+
+    # PHP → PHPStan + Opengrep SAST
+    case "$ext" in
+        php) tools="${tools} phpstan opengrep" ;;
+    esac
+
+    # Go → golangci-lint (package-scoped) + Opengrep SAST
+    case "$ext" in
+        go) tools="${tools} golangci_lint opengrep" ;;
+    esac
+
+    # TypeScript only → ESLint with type-info + Opengrep SAST
+    case "$ext" in
+        ts|tsx|mts|cts) tools="${tools} eslint_typed opengrep" ;;
+    esac
+
+    # Python → Opengrep SAST (Pyright blocked on Etap 0 pinning)
+    case "$ext" in
+        py) tools="${tools} opengrep" ;;
+    esac
+
+    # JS / JSX → Opengrep SAST
+    case "$ext" in
+        js|jsx|mjs|cjs) tools="${tools} opengrep" ;;
+    esac
+
+    # Terraform → tflint + Checkov
+    case "$ext" in
+        tf|tofu) tools="${tools} tflint checkov" ;;
+    esac
+
+    # Dockerfile → Checkov
+    case "$filename" in
+        Dockerfile|*.dockerfile|Dockerfile.*)
+            case "$tools" in *checkov*) ;; *) tools="${tools} checkov" ;; esac ;;
+    esac
+    case "$file" in
+        */Dockerfile|*/Dockerfile.*)
+            case "$tools" in *checkov*) ;; *) tools="${tools} checkov" ;; esac ;;
+    esac
+
+    # YAML: GitHub Actions or K8s manifests → Checkov
+    case "$ext" in
+        yaml|yml)
+            case "$tools" in *checkov*) ;;
+            *)
+                case "$file" in
+                    */.github/workflows/*.yml|*/.github/workflows/*.yaml|\
+                    .github/workflows/*.yml|.github/workflows/*.yaml)
+                        tools="${tools} checkov" ;;
+                    *)
+                        if [ -f "$file" ] \
+                            && grep -q 'apiVersion:' "$file" 2>/dev/null \
+                            && grep -q 'kind:' "$file" 2>/dev/null; then
+                            tools="${tools} checkov"
+                        fi
+                        ;;
+                esac
+                ;;
+            esac ;;
+    esac
+
+    printf '%s' "${tools# }"
+}
+
+# --------------------------------------------------------------------------- #
+# Public entry point — medium tier
+# --------------------------------------------------------------------------- #
+
+# dispatch_medium <file> <session_id> <agent_id> <project_dir> <findings_out>
+#
+# Debounces rapid edits (SLOPGUARD_MEDIUM_DEBOUNCE, default 3 s), then runs
+# medium-tier tools.  Writes new findings as NDJSON to <findings_out>.
+# Always exits 0 (fail-open, §2 Z6).
+#
+# Dedup via _dispatch_fingerprint_seen means repeat findings are not emitted;
+# callers check severity to decide whether to wake the agent (§11.3: only
+# new findings ≥ error trigger asyncRewake).
+dispatch_medium() {
+    local file="$1" session_id="$2" agent_id="$3" project_dir="${4:-.}"
+    local findings_out="$5"
+
+    [ -f "$file" ] || return 0
+
+    # ------------------------------------------------------------------ #
+    # Debounce: last caller within the window wins.
+    # Write a unique token, sleep the debounce window, re-read.  If the
+    # token changed (a later invocation overwrote it), yield without running
+    # any tools.  This coalesces rapid edits into one run per file set.
+    # ------------------------------------------------------------------ #
+    local debounce="${SLOPGUARD_MEDIUM_DEBOUNCE:-3}"
+    local pending_key
+    pending_key="$(_dispatch_medium_pending_key "$session_id" "$agent_id" "$file")"
+    mkdir -p "$(dirname "$pending_key")"
+    # Use BASHPID for uniqueness in concurrent subshells; fall back to PID + RANDOM.
+    local my_token
+    my_token="${BASHPID:-$$}-$(date +%s 2>/dev/null || printf '0')-${RANDOM:-0}"
+    local _ptmp; _ptmp="${pending_key}.tmp${BASHPID:-$$}"
+    printf '%s' "$my_token" > "$_ptmp" && mv "$_ptmp" "$pending_key" || true
+    sleep "$debounce" 2>/dev/null || true
+    local current_token; current_token="$(cat "$pending_key" 2>/dev/null || true)"
+    [ "$current_token" = "$my_token" ] || return 0
+
+    # ------------------------------------------------------------------ #
+    # Dispatcher-level timeout: skip remaining tools if the budget is exceeded.
+    # Separate from per-tool timeout (SLOPGUARD_MEDIUM_TOOL_TIMEOUT).
+    # ------------------------------------------------------------------ #
+    local _mm_start; _mm_start="$(date +%s 2>/dev/null || printf '0')"
+    _mm_budget_ok() {
+        local _now; _now="$(date +%s 2>/dev/null || printf '0')"
+        [ $(( _now - _mm_start )) -lt "${SLOPGUARD_MEDIUM_DISPATCH_TIMEOUT:-55}" ]
+    }
+
+    # Diff context (same as fast tier).
+    local is_untracked=0
+    diff_is_untracked "$file" "$project_dir" 2>/dev/null && is_untracked=1
+
+    local changed_ranges=""
+    if [ "$is_untracked" -eq 0 ]; then
+        changed_ranges="$(diff_changed_ranges "$file" "$project_dir" 2>/dev/null || true)"
+    fi
+
+    # Select and run medium-tier tools within the dispatcher budget.
+    local tools; tools="$(_dispatch_medium_tools_for_file "$file")"
+    local tool
+    for tool in $tools; do
+        _mm_budget_ok || break
+        local fn="_dispatch_run_${tool}"
+        if declare -f "$fn" >/dev/null 2>&1; then
+            "$fn" "$file" "$session_id" "$agent_id" "$project_dir" \
+                "$is_untracked" "$changed_ranges" "$findings_out" || true
+        fi
+    done
+
+    return 0
+}

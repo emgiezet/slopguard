@@ -1,0 +1,24 @@
+---
+# GitLab CI pipeline — antipattern examples
+stages:
+  - build
+  - test
+
+# ruleid: slopguard.gitlab.image-without-digest
+build:
+  image: node:20-alpine
+  stage: build
+  script:
+    - npm ci
+    - npm run build
+
+# ruleid: slopguard.gitlab.image-without-digest
+test:
+  image: python:3.12
+  stage: test
+  script:
+    - pytest
+
+# ruleid: slopguard.gitlab.include-remote
+include:
+  - remote: https://example.com/shared/pipeline.yml

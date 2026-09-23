@@ -1,0 +1,45 @@
+---
+# rules/opengrep/docker-ci.yaml — Docker and GitLab CI antipattern rules.
+# License: MIT. Written from scratch; does not copy or paraphrase Semgrep Registry content.
+# Opengrep is not installed in the authoring environment; patterns are syntactic (no taint mode).
+rules:
+  - id: slopguard.docker.curl-pipe-shell
+    languages: [dockerfile]
+    message: >-
+      RUN curl|wget piped directly to sh/bash/python. Remote script execution
+      without checksum verification is a supply-chain attack vector. Download
+      the script, verify its checksum, then run it explicitly.
+    severity: ERROR
+    metadata:
+      ap_id: AP-DOCKER-004
+      category: security
+      cwe: CWE-494
+    pattern-regex: 'RUN\s+.*(curl|wget)\s+.*\|\s*(sh|bash|zsh|python[23]?|perl|ruby)\b'
+
+  - id: slopguard.gitlab.image-without-digest
+    languages: [yaml]
+    message: >-
+      GitLab CI job image specified without a digest (@sha256:...). A mutable tag
+      can be replaced by a new image between pipeline runs, breaking
+      reproducibility and enabling supply-chain attacks. Pin with a digest.
+    severity: WARNING
+    metadata:
+      ap_id: AP-CI-006
+      category: security
+      cwe: CWE-494
+    patterns:
+      - pattern-regex: '^\s+image:\s+["\']?[^@\s]+:[^@\s]+["\']?\s*$'
+      - pattern-not-regex: '^\s+image:\s+.*@sha256:'
+
+  - id: slopguard.gitlab.include-remote
+    languages: [yaml]
+    message: >-
+      GitLab CI include with a remote URL pulls pipeline configuration from an
+      external host at runtime. A compromised remote can inject malicious jobs.
+      Use local or project includes, or pin the remote with a specific commit SHA.
+    severity: WARNING
+    metadata:
+      ap_id: AP-CI-006
+      category: security
+      cwe: CWE-829
+    pattern-regex: 'include:\s*\n(\s+.*\n)*\s+-\s+remote:\s+http'

@@ -1,0 +1,106 @@
+---
+# rules/opengrep/node.yaml — Node.js backend security antipattern rules.
+# License: MIT. Written from scratch; does not copy or paraphrase Semgrep Registry content.
+# Opengrep is not installed in the authoring environment; patterns are syntactic (no taint mode).
+# Note: AP-NODE-SEC-001 (prototype pollution) requires dataflow analysis for full coverage;
+# this syntactic rule catches the most common static patterns.
+rules:
+  - id: slopguard.node.prototype-pollution-merge
+    languages: [javascript, typescript]
+    message: >-
+      Direct property assignment from req.body or req.query onto an object can
+      pollute Object.prototype when the key is __proto__, constructor, or
+      prototype. Use Object.create(null) for accumulator objects, validate
+      input with a schema, and guard with Object.hasOwn() before assignment.
+    severity: ERROR
+    metadata:
+      ap_id: AP-NODE-SEC-001
+      category: security
+      cwe: CWE-1321
+    pattern-either:
+      - pattern: $OBJ[$KEY] = $VAL
+      - pattern: Object.assign($TARGET, $REQ.body)
+      - pattern: Object.assign($TARGET, $REQ.query)
+      - pattern: Object.assign($TARGET, $REQ.params)
+      - pattern: |
+          function $MERGE($A, $B) {
+            ...
+            $A[$K] = $B[$K];
+            ...
+          }
+
+  - id: slopguard.node.exec-template-literal
+    languages: [javascript, typescript]
+    message: >-
+      child_process.exec() or execSync() called with a template literal. Template
+      literals can embed user-supplied values, enabling shell command injection.
+      Use execFile() or spawn() with an argument array so the shell is never
+      involved.
+    severity: ERROR
+    metadata:
+      ap_id: AP-NODE-SEC-002
+      category: security
+      cwe: CWE-78
+    pattern-either:
+      - pattern: exec(`...`)
+      - pattern: execSync(`...`)
+      - pattern: child_process.exec(`...`)
+      - pattern: child_process.execSync(`...`)
+      - pattern: require('child_process').exec(`...`)
+      - pattern: require('child_process').execSync(`...`)
+
+  - id: slopguard.node.math-random-token
+    languages: [javascript, typescript]
+    message: >-
+      Math.random() is a pseudo-random number generator seeded from the system
+      clock; it is not cryptographically secure. For tokens, session IDs, or
+      CSRF values use crypto.randomBytes() or crypto.randomUUID().
+    severity: ERROR
+    metadata:
+      ap_id: AP-NODE-SEC-006
+      category: security
+      cwe: CWE-330
+    pattern: Math.random()
+
+  - id: slopguard.node.express-no-body-limit
+    languages: [javascript, typescript]
+    message: >-
+      express.json() or express.urlencoded() called without a limit option.
+      Without a size cap an attacker can send arbitrarily large payloads to
+      exhaust memory. Add limit: e.g. express.json({ limit: '100kb' }).
+    severity: WARNING
+    metadata:
+      ap_id: AP-NODE-SEC-007
+      category: security
+      cwe: CWE-400
+    pattern-either:
+      - patterns:
+          - pattern: express.json()
+      - patterns:
+          - pattern: express.urlencoded()
+      - patterns:
+          - pattern: bodyParser.json()
+      - patterns:
+          - pattern: bodyParser.urlencoded()
+
+  - id: slopguard.node.jwt-verify-without-algorithms
+    languages: [javascript, typescript]
+    message: >-
+      jwt.verify() called without an explicit algorithms option. Without it the
+      library accepts any algorithm, including 'none', allowing a forged token
+      with no signature to pass verification. Always specify algorithms: ['RS256']
+      or whichever algorithm your issuer uses.
+    severity: ERROR
+    metadata:
+      ap_id: AP-NODE-SEC-009
+      category: security
+      cwe: CWE-347
+    pattern-either:
+      - patterns:
+          - pattern: jwt.verify($TOKEN, $SECRET)
+          - pattern-not: jwt.verify($TOKEN, $SECRET, {algorithms: [...], ...}, ...)
+          - pattern-not: jwt.verify($TOKEN, $SECRET, {$...OPT}, ...)
+      - patterns:
+          - pattern: $JWT.verify($TOKEN, $SECRET)
+          - pattern-not: $JWT.verify($TOKEN, $SECRET, {algorithms: [...], ...}, ...)
+          - pattern-not: $JWT.verify($TOKEN, $SECRET, {$...OPT}, ...)

@@ -19,6 +19,7 @@
     "than defence in depth.  The permissions block below has no effect on omp."
   ],
   "$comment_ext": "Project extensions: .slopguard/** (mapping overrides and tool descriptors) should be committed to the repository and reviewed like any other quality gate — these files control which binaries the guard executes and which rule severities are overridden. All writes to .slopguard/** require human approval (pre-write asks, same as .slopguard.json).",
+  "$comment_stop_gate": "The Stop gate (Etap 4) runs slow checks at turn end and keeps Claude working until blockers are resolved. It is controlled by the 'stop_gate' plugin option (default: true) set when the user installs or configures the plugin — not by this settings.json. Teams with strict enforcement can also set {\"stop_gate\": true, \"enforcement_mode\": \"strict\"} in their .slopguard.json project file. The Stop gate itself never produces more than 2 consecutive blocks of the same finding (Z8 loop protection); after the cap it degrades to a systemMessage warning.",
   "permissions": {
     "deny": [
       "Read(./.env)",

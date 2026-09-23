@@ -1,0 +1,59 @@
+---
+# tflint → AP-id mapping (§6.6, tier M).
+# Rule IDs from tflint-ruleset-terraform (preset=recommended) and tflint-ruleset-aws.
+rules:
+  terraform_deprecated_interpolation:
+    ap_id: AP-TF-MAINT-001
+    severity: warn
+    category: maintainability
+    cwe: ""
+  terraform_unused_declarations:
+    ap_id: AP-TF-MAINT-002
+    severity: warn
+    category: maintainability
+    cwe: ""
+  terraform_required_version:
+    ap_id: AP-TF-MAINT-003
+    severity: warn
+    category: maintainability
+    cwe: ""
+  terraform_documented_variables:
+    ap_id: AP-TF-MAINT-004
+    severity: warn
+    category: maintainability
+    cwe: ""
+  terraform_documented_outputs:
+    ap_id: AP-TF-MAINT-005
+    severity: warn
+    category: maintainability
+    cwe: ""
+  terraform_naming_convention:
+    ap_id: AP-TF-MAINT-006
+    severity: warn
+    category: maintainability
+    cwe: ""
+  aws_security_group_rule_invalid_port:
+    ap_id: AP-TF-SEC-001
+    severity: error
+    category: security
+    cwe: ""
+  aws_security_group_rule_invalid_protocol:
+    ap_id: AP-TF-SEC-002
+    severity: error
+    category: security
+    cwe: ""
+  aws_instance_invalid_type:
+    ap_id: AP-TF-MAINT-007
+    severity: error
+    category: maintainability
+    cwe: ""
+  aws_lambda_function_invalid_runtime:
+    ap_id: AP-TF-SEC-003
+    severity: error
+    category: security
+    cwe: ""
+  aws_iam_policy_document_gov_friendly_arns:
+    ap_id: AP-TF-SEC-004
+    severity: warn
+    category: security
+    cwe: ""
