@@ -96,6 +96,9 @@ cmd_post_write() {
             . "${CLAUDE_PLUGIN_ROOT}/lib/diff.sh"
             # shellcheck source=../lib/dispatch.sh
             . "${CLAUDE_PLUGIN_ROOT}/lib/dispatch.sh"
+            # shellcheck source=../lib/ext.sh
+            [ -f "${CLAUDE_PLUGIN_ROOT}/lib/ext.sh" ] \
+                && . "${CLAUDE_PLUGIN_ROOT}/lib/ext.sh"
             "${PLUGIN_ROOT}/hooks/post-write"
             ;;
         *)
@@ -282,6 +285,62 @@ cmd_doctor() {
             fi
         fi
     done <<< "$tools_list"
+
+    # Extensions section — always shown; informs the user about descriptor status.
+    say ""
+    local _ext_sh_doc; _ext_sh_doc="${SLOPGUARD_EXT_SH:-${CLAUDE_PLUGIN_ROOT}/lib/ext.sh}"
+    if [ -f "$_ext_sh_doc" ]; then
+        # shellcheck source=../lib/ext.sh
+        . "$_ext_sh_doc"
+        local _doc_proj; _doc_proj="${CLAUDE_PROJECT_DIR:-.}"
+        local _doc_ext_dir; _doc_ext_dir="$(ext_dir "$_doc_proj")"
+        say "Extensions (${_doc_ext_dir}):"
+        if [ -d "$_doc_ext_dir" ]; then
+            local _doc_ext_out; _doc_ext_out="$(ext_tools "$_doc_proj")"
+            if [ -z "$_doc_ext_out" ]; then
+                say "  (no tool descriptors)"
+            else
+                local _doc_obj _doc_name _doc_tier _doc_resolved _doc_status
+                local _doc_label _doc_map_count _doc_map_file
+                while IFS= read -r _doc_obj; do
+                    [ -n "$_doc_obj" ] || continue
+                    _doc_name="$(printf '%s' "$_doc_obj" | jq -r '.name // "?"')"
+                    _doc_tier="$(printf '%s' "$_doc_obj" | jq -r '.tier // "?"')"
+                    _doc_resolved="$(printf '%s' "$_doc_obj" | jq -r '.resolved // ""')"
+                    _doc_status="$(printf '%s' "$_doc_obj" | jq -r '.status // "?"')"
+                    case "$_doc_status" in
+                        ok)
+                            _doc_label="project: ${_doc_resolved#${_doc_proj}/}"
+                            ;;
+                        absent)
+                            _doc_label="absent"
+                            ;;
+                        refused:*)
+                            _doc_label="${_doc_status/refused:/refused: }"
+                            ;;
+                        *)
+                            _doc_label="$_doc_status"
+                            ;;
+                    esac
+                    _doc_map_count=0
+                    _doc_map_file="${_doc_ext_dir}/mapping/${_doc_name}.yaml"
+                    if [ -f "$_doc_map_file" ]; then
+                        _doc_map_count="$(awk '
+                            /^rules:/{in_rules=1;next}
+                            in_rules && /^  [[:alnum:]]/{c++}
+                            END{print c+0}
+                        ' "$_doc_map_file")"
+                    fi
+                    say "  ${_doc_name}  tier: ${_doc_tier}  ${_doc_label}  overrides: ${_doc_map_count}"
+                done <<< "$_doc_ext_out"
+            fi
+        else
+            say "  (no .slopguard/ directory)"
+        fi
+    else
+        say "Extensions:"
+        say "  (lib/ext.sh not yet installed — extensions unavailable)"
+    fi
 
     say ""
     if [ "$fail_count" -eq 0 ]; then

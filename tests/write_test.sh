@@ -62,6 +62,9 @@ run_write_policy Edit phpstan-baseline.neon 'parameters: {}' 'parameters: {}' as
 run_write_policy Edit pyproject.toml '' '[tool.ruff]' ask 'removing protected pyproject section asks'
 run_write_policy Edit tsconfig.json '' '"strict": true' ask 'removing strict TypeScript config asks'
 run_write_policy Write .slopguard.json '{"stacks":[]}' '' ask '.slopguard.json write asks'
+run_write_policy Write '.slopguard/tools/sqlfluff.yaml' 'name: sqlfluff' '' ask '.slopguard/tools/*.yaml write asks'
+run_write_policy Write '.slopguard/mapping/ruff.yaml' 'rules: {}' '' ask '.slopguard/mapping/*.yaml write asks'
+run_write_policy Write 'docs/.slopguard-notes.md' '# notes' '' allow 'similarly-named path outside .slopguard/ tree is not blocked'
 run_write_policy Write package.json '{"name":"app"}' '' allow 'package.json write is not blocked'
 
 context_payload="$(jq -n \

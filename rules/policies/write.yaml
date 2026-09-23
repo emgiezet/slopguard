@@ -46,6 +46,15 @@ protected_files:
     # .slopguard.json selects which stacks are guarded; disabling a stack silences the language layer.
     - ".slopguard.json"
 
+  # .slopguard/ extension tree — path-based; matched on full file_path in hooks/pre-write.
+  # A tool descriptor names a binary the plugin will execute on every write;
+  # a mapping override can lower a severity.  Both are human decisions, not
+  # moves an agent makes mid-turn.
+  slopguard_extensions:
+    path_patterns:
+      - ".slopguard/tools/*.yaml"
+      - ".slopguard/mapping/*.yaml"
+
   baselines:
     - "phpstan-baseline.neon"
     - "psalm-baseline.xml"

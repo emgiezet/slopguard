@@ -510,6 +510,155 @@ _dispatch_run_zizmor() {
 }
 
 # --------------------------------------------------------------------------- #
+# Extension descriptor runners (require ext.sh to be sourced)
+# --------------------------------------------------------------------------- #
+
+# _dispatch_run_one_ext_tool  desc_json file session_id agent_id project_dir
+#                              is_untracked changed_ranges findings_out
+# Run one validated project-descriptor tool and emit findings through the normal
+# pipeline.  Always exits 0 (fail-open).
+_dispatch_run_one_ext_tool() {
+    local desc_json="$1" file="$2" session_id="$3" agent_id="$4"
+    local project_dir="$5" is_untracked="$6" changed_ranges="$7" findings_out="$8"
+
+    local name resolved timeout_val jq_expr
+    name="$(printf '%s' "$desc_json"      | jq -r '.name'              2>/dev/null)"
+    resolved="$(printf '%s' "$desc_json"  | jq -r '.resolved'          2>/dev/null)"
+    timeout_val="$(printf '%s' "$desc_json" | jq -r '.run.timeout // 8' 2>/dev/null)"
+    jq_expr="$(printf '%s' "$desc_json"   | jq -r '.parse.jq'          2>/dev/null)"
+
+    if [ -z "$resolved" ] || [ ! -x "$resolved" ]; then
+        if ! _dispatch_tool_unavail_seen "$session_id" "$agent_id" "ext:${name}"; then
+            _dispatch_tool_unavail_mark "$session_id" "$agent_id" "ext:${name}"
+            printf 'slopguard: ext tool %s: binary not found (skip)\n' "$name" >&2
+        fi
+        return 0
+    fi
+
+    # Build argv array from JSON, substituting {file} as one whole element.
+    # No shell interpolation: each element is passed directly to exec.
+    local args_json; args_json="$(printf '%s' "$desc_json" | jq -c '.run.args' 2>/dev/null)"
+    local arg_count; arg_count="$(printf '%s' "$args_json" | jq 'length' 2>/dev/null || printf '0')"
+    local cmd_args=() i arg
+    for i in $(seq 0 $((arg_count - 1))); do
+        arg="$(printf '%s' "$args_json" | jq -r --argjson idx "$i" '.[$idx]' 2>/dev/null)"
+        if [ "$arg" = '{file}' ]; then
+            cmd_args+=("$file")
+        else
+            cmd_args+=("$arg")
+        fi
+    done
+
+    # Run under timeout (fail-open: treat non-0/1 exit as no output).
+    local raw exit_code=0
+    raw="$(timeout "$timeout_val" "$resolved" "${cmd_args[@]}" 2>/dev/null)" || exit_code=$?
+    [ "$exit_code" -eq 0 ] || [ "$exit_code" -eq 1 ] || return 0
+    [ -n "$raw" ] || return 0
+
+    # Apply descriptor's jq expression to produce finding objects.
+    local parsed_nd
+    parsed_nd="$(printf '%s' "$raw" | jq -c "${jq_expr}" 2>/dev/null || true)"
+    [ -n "$parsed_nd" ] || return 0
+
+    # Load merged mapping for this tool (once per ext tool run).
+    local mapping_nd; mapping_nd="$(ext_load_mapping "$project_dir" "$name")"
+
+    # For each finding object extract rule, line, message.
+    local findings_tsv
+    findings_tsv="$(printf '%s' "$parsed_nd" \
+        | jq -r '[.rule // "unknown", .message // "", ((.line // 0)|tostring)] | @tsv' \
+        2>/dev/null || true)"
+
+    local rule_id msg_txt line_no
+    while IFS=$'\t' read -r rule_id msg_txt line_no; do
+        [ -n "$rule_id" ] || continue
+
+        # Look up rule in merged mapping.
+        local ap_id severity category cwe_str cwe_json map_line
+        map_line="$(printf '%s' "$mapping_nd" \
+            | jq -r --arg r "$rule_id" \
+                'select(.rule == $r) | [.ap_id, .severity, .category, .cwe] | @tsv' \
+            2>/dev/null)"
+
+        if [ -n "$map_line" ]; then
+            IFS=$'\t' read -r ap_id severity category cwe_str <<< "$map_line"
+            cwe_json="$(_dispatch_cwe_json "$cwe_str")"
+        else
+            # Neutral default: unmapped rule → warn maintainability, no ap_id.
+            ap_id=""
+            category="maintainability"
+            severity="warn"
+            cwe_json='[]'
+        fi
+
+        local snippet; snippet="$(printf '%s' "$msg_txt" | head -c 120)"
+
+        _dispatch_filter_emit \
+            "$session_id" "$agent_id" "$ap_id" "$name" "$rule_id" \
+            "$category" "$severity" "$cwe_json" \
+            "$file" "$line_no" "$line_no" "$msg_txt" "" "$snippet" \
+            "$is_untracked" "$changed_ranges" "$findings_out"
+    done <<< "$findings_tsv"
+}
+
+# _dispatch_run_ext_descriptors  file session_id agent_id project_dir
+#                                 is_untracked changed_ranges findings_out
+# Run all project descriptor tools whose globs match file and whose stacks
+# (when specified) intersect SG_STACKS.  Always exits 0.
+_dispatch_run_ext_descriptors() {
+    local file="$1" session_id="$2" agent_id="$3" project_dir="$4"
+    local is_untracked="$5" changed_ranges="$6" findings_out="$7"
+
+    local ext_d; ext_d="$(ext_dir "$project_dir")"
+    [ -d "${ext_d}/tools" ] || return 0
+
+    local tools_nd; tools_nd="$(ext_tools "$project_dir")"
+    [ -n "$tools_nd" ] || return 0
+
+    # Relative file path for glob matching.
+    local file_rel="$file"
+    [ "${file#${project_dir}/}" != "$file" ] && file_rel="${file#${project_dir}/}"
+
+    local desc_line
+    while IFS= read -r desc_line; do
+        [ -n "$desc_line" ] || continue
+
+        # Only run descriptors resolved as ok.
+        local status; status="$(printf '%s' "$desc_line" | jq -r '.status' 2>/dev/null)"
+        [ "$status" = "ok" ] || continue
+
+        # Glob match: any pattern in match.globs must match.
+        local matched=0 glob globs_out
+        globs_out="$(printf '%s' "$desc_line" \
+            | jq -r '.match.globs // [] | .[]' 2>/dev/null || true)"
+        while IFS= read -r glob; do
+            [ -n "$glob" ] || continue
+            _ext_glob_match "$glob" "$file_rel" && { matched=1; break; }
+        done <<< "$globs_out"
+        [ "$matched" -eq 1 ] || continue
+
+        # Stack intersection: only when descriptor specifies stacks AND SG_STACKS is set.
+        local stacks_json; stacks_json="$(printf '%s' "$desc_line" \
+            | jq -c '.match.stacks // []' 2>/dev/null)"
+        if [ "$stacks_json" != '[]' ] && [ "$stacks_json" != 'null' ] \
+            && [ -n "${SG_STACKS:-}" ]; then
+            local stack_ok=0 dstack stacks_out
+            stacks_out="$(printf '%s' "$stacks_json" | jq -r '.[]' 2>/dev/null || true)"
+            while IFS= read -r dstack; do
+                [ -n "$dstack" ] || continue
+                case " ${SG_STACKS} " in *" ${dstack} "*) stack_ok=1; break ;; esac
+            done <<< "$stacks_out"
+            [ "$stack_ok" -eq 1 ] || continue
+        fi
+
+        _dispatch_run_one_ext_tool "$desc_line" "$file" \
+            "$session_id" "$agent_id" "$project_dir" \
+            "$is_untracked" "$changed_ranges" "$findings_out" || true
+    done <<< "$tools_nd"
+}
+
+
+# --------------------------------------------------------------------------- #
 # Tool selection
 # --------------------------------------------------------------------------- #
 
@@ -592,10 +741,8 @@ dispatch_fast() {
         changed_ranges="$(diff_changed_ranges "$file" "$project_dir" 2>/dev/null || true)"
     fi
 
-    # Select tools for this file.
+    # Select and run pinned fast-tier tools for this file.
     local tools; tools="$(_dispatch_tools_for_file "$file")"
-    [ -n "$tools" ] || return 0
-
     local tool
     for tool in $tools; do
         local fn="_dispatch_run_${tool//-/_}"
@@ -604,6 +751,13 @@ dispatch_fast() {
                 "$is_untracked" "$changed_ranges" "$findings_out" || true
         fi
     done
+
+    # Run project-descriptor tools when ext.sh is sourced.
+    if declare -f ext_tools >/dev/null 2>&1; then
+        _dispatch_run_ext_descriptors \
+            "$file" "$session_id" "$agent_id" "$project_dir" \
+            "$is_untracked" "$changed_ranges" "$findings_out" || true
+    fi
 
     return 0
 }

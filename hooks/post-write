@@ -25,6 +25,10 @@ PLUGIN_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 . "${PLUGIN_ROOT}/lib/diff.sh"
 # shellcheck source=../lib/dispatch.sh
 . "${PLUGIN_ROOT}/lib/dispatch.sh"
+# shellcheck source=../lib/ext.sh
+# Project descriptors are optional: dispatch_fast runs them only when ext.sh
+# has been sourced, so this source is what makes .slopguard/tools/ live.
+[ -f "${PLUGIN_ROOT}/lib/ext.sh" ] && . "${PLUGIN_ROOT}/lib/ext.sh"
 
 hook_input
 

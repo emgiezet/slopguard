@@ -3,6 +3,15 @@
 All notable changes to Slop Guard will be documented in this file.
 
 ## Unreleased
+- **Extension mechanism: `.slopguard/`** (2026-09-23)
+  - `lib/ext.sh` (new): `ext_dir` (extension root, honoring `SLOPGUARD_EXT_DIR`), `ext_load_mapping` (merges plugin + project mapping overrides, outputs NDJSON per rule), `ext_tools` (loads and validates tool descriptors, returns one NDJSON object per descriptor with `resolved` and `status` fields), `ext_validate` (exit 0 if a descriptor or mapping file is structurally valid), `ext_override_counts` (total overrides + severity downgrade count).
+  - Two extension classes: **(A)** `.slopguard/mapping/<tool>.yaml` — project patches plugin's `rules/mapping/<tool>.yaml` field by field (same schema; partial entries allowed); **(B)** `.slopguard/tools/<name>.yaml` — full descriptor for a linter the plugin does not pin.
+  - Security rules enforced in `ext_validate` and `ext_tools`: `run.args` must be an array (no shell-string command); `parse.jq` is a jq expression evaluated by `jq -e`; binary resolution requires `resolve.project` paths (relative, must exist and be executable) or a PATH binary matching `resolve.path_sha256`; the plugin never installs a descriptor's tool (`doctor --install` serves `tools.lock.json` only).
+  - Refusal cases: no resolution spec (`refused:no-resolve`), sha256 mismatch (`refused:sha256-mismatch`), `name` does not match filename (`refused:name-mismatch`), name collides with a pinned tool (`refused:pinned-tool-collision`), unparseable file (`refused:invalid`).
+  - Severity downgrade counting: `ext_override_counts` emits `<total_overrides> <severity_downgrades>`. Rank for comparison: `blocker` > `error` > `warn` > `info`. Lowering severity is allowed and counted; silent systematic downgrading is AP-AGENT-002.
+  - No `~/.config` scope — deliberately rejected. Configuration that does not travel with the repo makes developer results differ from CI.
+  - `.slopguard/**` added to `pre-write` protected list as `ask` (§7.2C) — same protection as `.slopguard.json`.
+  - `docs/slop-guard-spec.md`: §7.8 (new) documents the extension mechanism end to end; §9.1 updated — descriptor tools are resolution step 4, after pinned plugin tools; TOC updated. D23 added to `docs/decisions.md`.
 - **Etap 2 (partial): fast-tier detection** (2026-09-23)
   - `lib/diff.sh` (new): `diff_changed_ranges`, `diff_is_untracked`, `diff_line_in_ranges` — implements §2 Z2 changed-lines filter using `git diff -U0`; untracked files are judged whole.
   - `lib/dispatch.sh` (new): `dispatch_fast` dispatcher; routes files to fast-tier tools by extension and filename pattern; per-tool timeout (`SLOPGUARD_FAST_TOOL_TIMEOUT`, default 8 s, §2 Z6 fail-open on timeout or missing binary); §2 Z2 line filter applied per finding category; fingerprint-based session deduplication; findings persisted via `finding_add`.

@@ -135,6 +135,10 @@ case "$file_path" in
             fi
         done
         ;;
+    .slopguard/tools/*.yaml|*/.slopguard/tools/*.yaml|\
+    .slopguard/mapping/*.yaml|*/.slopguard/mapping/*.yaml)
+        protected=1
+        ;;
 esac
 if [ "$protected" -eq 1 ]; then
     hook_ask "Lowering quality gates must be reviewed by a human."

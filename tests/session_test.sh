@@ -312,6 +312,68 @@ printf '%s\n' "${_fw_out}" | grep -q 'AP-AGENT-009' \
     || bad "digest: AP-AGENT-009 present" "missing in digest"
 
 # --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
+# 11. Extensions line: project with .slopguard/ prints the line with right counts
+# --------------------------------------------------------------------------- #
+
+# Stub ext.sh with known data: 2 tools (1 active, 1 absent), 12 overrides / 3 downgrades.
+_stub_ext="${WORK}/stub-ext.sh"
+cat > "$_stub_ext" <<'EXTEOF'
+ext_dir() { printf '%s/.slopguard\n' "$1"; }
+ext_override_counts() { printf '12 3\n'; }
+ext_tools() {
+    printf '{"name":"sqlfluff","tier":"fast","resolved":"/usr/bin/sqlfluff","status":"ok"}\n'
+    printf '{"name":"detekt","tier":"fast","resolved":"","status":"absent"}\n'
+}
+EXTEOF
+
+_ext_proj="${WORK}/ext-proj"
+mkdir -p "${_ext_proj}/.slopguard/tools" "${_ext_proj}/.slopguard/mapping"
+_ext_json='{"session_id":"ext-test-001","cwd":"/tmp","hook_event_name":"SessionStart","agent_id":null,"agent_type":null}'
+_ext_out="$(printf '%s\n' "${_ext_json}" \
+    | SLOPGUARD_EXT_SH="${_stub_ext}" CLAUDE_PROJECT_DIR="${_ext_proj}" "${HOOK}" 2>/dev/null)"
+
+printf '%s\n' "${_ext_out}" | grep -q 'project extensions:' \
+    && ok  "extensions: line present when .slopguard/ exists" \
+    || bad "extensions: line missing for project with .slopguard/" "${_ext_out}"
+
+printf '%s\n' "${_ext_out}" | grep -q '2 tools (1 active, 1 absent)' \
+    && ok  "extensions: tool counts correct (2 tools, 1 active, 1 absent)" \
+    || bad "extensions: tool counts" "${_ext_out}"
+
+printf '%s\n' "${_ext_out}" | grep -q '12 rule overrides (3 severity downgrades)' \
+    && ok  "extensions: override counts correct (12 overrides, 3 downgrades)" \
+    || bad "extensions: override counts" "${_ext_out}"
+
+# --------------------------------------------------------------------------- #
+# 12. Budget: project without .slopguard/ — digest within §8.8 limits and no
+#     extensions line.  Use a second run of the same session so the one-shot
+#     missing-tools notice does not distort the byte count.
+# --------------------------------------------------------------------------- #
+
+_budget_proj="${WORK}/budget-proj"
+mkdir -p "${_budget_proj}"
+_budget_json='{"session_id":"budget-steady-001","cwd":"/tmp","hook_event_name":"SessionStart","agent_id":null,"agent_type":null}'
+# First run: clears the missing-tools marker.
+printf '%s\n' "${_budget_json}" \
+    | SLOPGUARD_EXT_SH="${_stub_ext}" CLAUDE_PROJECT_DIR="${_budget_proj}" "${HOOK}" >/dev/null 2>&1
+# Second run: steady-state output (no missing-tools line, no .slopguard/ dir).
+_budget_out="$(printf '%s\n' "${_budget_json}" \
+    | SLOPGUARD_EXT_SH="${_stub_ext}" CLAUDE_PROJECT_DIR="${_budget_proj}" "${HOOK}" 2>/dev/null)"
+
+printf '%s\n' "${_budget_out}" | grep -q 'project extensions:' \
+    && bad "budget: extensions line present for project without .slopguard/" "${_budget_out}" \
+    || ok  "budget: no extensions line for project without .slopguard/"
+
+_budget_lines="$(printf '%s\n' "${_budget_out}" | wc -l | tr -d ' ')"
+_budget_bytes="$(printf '%s\n' "${_budget_out}" | wc -c | tr -d ' ')"
+[ "${_budget_lines}" -le 15 ] \
+    && ok  "budget: steady-state digest within 15-line limit (${_budget_lines} lines)" \
+    || bad "budget: 15-line limit exceeded" "got ${_budget_lines} lines (limit 15)"
+[ "${_budget_bytes}" -le 1500 ] \
+    && ok  "budget: steady-state digest within 1500-byte limit (${_budget_bytes} bytes)" \
+    || bad "budget: 1500-byte limit exceeded" "got ${_budget_bytes} bytes (limit 1500)"
+
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ] || exit 1

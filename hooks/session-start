@@ -19,6 +19,12 @@ PLUGIN_ROOT="$(cd "${HOOKS_DIR}/.." && pwd)"
 . "${CLAUDE_PLUGIN_ROOT}/lib/detect.sh"
 # shellcheck source=../lib/config.sh
 . "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
+# shellcheck source=../lib/ext.sh
+_sg_ext_lib="${SLOPGUARD_EXT_SH:-${CLAUDE_PLUGIN_ROOT}/lib/ext.sh}"
+if [ -f "$_sg_ext_lib" ]; then
+    # shellcheck disable=SC1090
+    . "$_sg_ext_lib"
+fi
 
 main() {
     hook_input
@@ -224,6 +230,34 @@ main() {
             [ -n "$_w" ] || continue
             printf 'slop-guard: warning: %s\n' "$_w"
         done <<< "${SG_STACKS_WARNINGS}"
+    fi
+    if declare -F ext_dir >/dev/null 2>&1; then
+        local _ext_dir_path _ext_tools_out _ext_counts
+        local _ext_total_overrides _ext_downgrades
+        local _ext_total _ext_active _ext_inactive _ext_obj
+        _ext_dir_path="$(ext_dir "${_d}")"
+        if [ -d "$_ext_dir_path" ]; then
+            _ext_tools_out="$(ext_tools "${_d}")"
+            _ext_counts="$(ext_override_counts "${_d}")"
+            _ext_total_overrides="${_ext_counts%% *}"
+            _ext_downgrades="${_ext_counts##* }"
+            _ext_total=0
+            _ext_active=0
+            _ext_inactive=0
+            if [ -n "$_ext_tools_out" ]; then
+                while IFS= read -r _ext_obj; do
+                    [ -n "$_ext_obj" ] || continue
+                    _ext_total=$(( _ext_total + 1 ))
+                    case "$_ext_obj" in
+                        *'"status":"ok"'*) _ext_active=$(( _ext_active + 1 )) ;;
+                        *)                 _ext_inactive=$(( _ext_inactive + 1 )) ;;
+                    esac
+                done <<< "$_ext_tools_out"
+            fi
+            printf 'slop-guard: project extensions: %s tools (%s active, %s absent), %s rule overrides (%s severity downgrades)\n' \
+                "$_ext_total" "$_ext_active" "$_ext_inactive" \
+                "$_ext_total_overrides" "$_ext_downgrades"
+        fi
     fi
     cat <<'DIGEST'
 slop-guard active — always-on rules (full text: skill agent-discipline)
