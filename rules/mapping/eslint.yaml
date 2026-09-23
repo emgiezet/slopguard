@@ -1,0 +1,174 @@
+---
+# ESLint rule → AP-id mapping (§6.4, §8.4, §8.5).
+# Severity follows §4.8 and the table in §6.4.
+rules:
+  no-eval:
+    ap_id: AP-TS-SEC-002
+    severity: blocker
+    category: security
+    cwe: CWE-95
+  no-new-func:
+    ap_id: AP-TS-SEC-002
+    severity: blocker
+    category: security
+    cwe: CWE-95
+  no-script-url:
+    ap_id: AP-TS-SEC-004
+    severity: blocker
+    category: security
+    cwe: CWE-79
+  security/detect-eval-with-expression:
+    ap_id: AP-TS-SEC-002
+    severity: blocker
+    category: security
+    cwe: CWE-95
+  security/detect-child-process:
+    ap_id: AP-NODE-SEC-002
+    severity: blocker
+    category: security
+    cwe: CWE-78
+  security/detect-non-literal-require:
+    ap_id: AP-NODE-SEC-008
+    severity: blocker
+    category: security
+    cwe: CWE-829
+  no-unsanitized/method:
+    ap_id: AP-TS-SEC-001
+    severity: blocker
+    category: security
+    cwe: CWE-79
+  no-unsanitized/property:
+    ap_id: AP-TS-SEC-001
+    severity: blocker
+    category: security
+    cwe: CWE-79
+  react/no-danger:
+    ap_id: AP-TS-SEC-001
+    severity: blocker
+    category: security
+    cwe: CWE-79
+  react/jsx-no-script-url:
+    ap_id: AP-TS-SEC-004
+    severity: blocker
+    category: security
+    cwe: CWE-79
+  regexp/no-super-linear-backtracking:
+    ap_id: AP-NODE-SEC-004
+    severity: blocker
+    category: security
+    cwe: CWE-1333
+  security/detect-unsafe-regex:
+    ap_id: AP-NODE-SEC-004
+    severity: blocker
+    category: security
+    cwe: CWE-1333
+  security/detect-bidi-characters:
+    ap_id: AP-TS-SEC-002
+    severity: error
+    category: security
+    cwe: ""
+  security/detect-buffer-noassert:
+    ap_id: AP-NODE-MAINT-002
+    severity: error
+    category: security
+    cwe: ""
+  security/detect-new-buffer:
+    ap_id: AP-NODE-MAINT-002
+    severity: error
+    category: security
+    cwe: ""
+  security/detect-non-literal-fs-filename:
+    ap_id: AP-NODE-SEC-003
+    severity: error
+    category: security
+    cwe: CWE-22
+  security/detect-possible-timing-attacks:
+    ap_id: AP-NODE-SEC-005
+    severity: error
+    category: security
+    cwe: CWE-208
+  security/detect-pseudoRandomBytes:
+    ap_id: AP-NODE-SEC-006
+    severity: error
+    category: security
+    cwe: CWE-330
+  "@typescript-eslint/no-implied-eval":
+    ap_id: AP-TS-SEC-002
+    severity: error
+    category: security
+    cwe: CWE-95
+  "@typescript-eslint/ban-ts-comment":
+    ap_id: AP-TS-MAINT-003
+    severity: error
+    category: maintainability
+    cwe: ""
+  "@typescript-eslint/no-floating-promises":
+    ap_id: AP-TS-MAINT-002
+    severity: error
+    category: maintainability
+    cwe: CWE-755
+  "@typescript-eslint/no-misused-promises":
+    ap_id: AP-TS-MAINT-002
+    severity: error
+    category: maintainability
+    cwe: CWE-755
+  react-hooks/rules-of-hooks:
+    ap_id: AP-TS-PERF-001
+    severity: error
+    category: performance
+    cwe: ""
+  react-hooks/exhaustive-deps:
+    ap_id: AP-TS-PERF-001
+    severity: error
+    category: performance
+    cwe: ""
+  react/jsx-no-target-blank:
+    ap_id: AP-TS-SEC-004
+    severity: error
+    category: security
+    cwe: ""
+  react/no-unstable-nested-components:
+    ap_id: AP-TS-PERF-003
+    severity: error
+    category: performance
+    cwe: ""
+  n/no-sync:
+    ap_id: AP-NODE-PERF-001
+    severity: error
+    category: performance
+    cwe: CWE-400
+  n/no-deprecated-api:
+    ap_id: AP-NODE-MAINT-002
+    severity: error
+    category: maintainability
+    cwe: CWE-477
+  n/no-process-exit:
+    ap_id: AP-NODE-MAINT-001
+    severity: warn
+    category: maintainability
+    cwe: ""
+  "@typescript-eslint/no-explicit-any":
+    ap_id: AP-TS-MAINT-001
+    severity: warn
+    category: maintainability
+    cwe: ""
+  "@typescript-eslint/no-non-null-assertion":
+    ap_id: AP-TS-MAINT-001
+    severity: warn
+    category: maintainability
+    cwe: ""
+  react/no-array-index-key:
+    ap_id: AP-TS-PERF-002
+    severity: warn
+    category: performance
+    cwe: ""
+  react/jsx-no-constructed-context-values:
+    ap_id: AP-TS-PERF-003
+    severity: warn
+    category: performance
+    cwe: ""
+  regexp/no-super-linear-move:
+    ap_id: AP-NODE-SEC-004
+    severity: warn
+    category: security
+    cwe: CWE-1333

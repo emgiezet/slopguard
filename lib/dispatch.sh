@@ -1,0 +1,609 @@
+#!/usr/bin/env bash
+# lib/dispatch.sh — fast-tier tool dispatch (Etap 2, §11.3).
+#
+# Requires: lib/state.sh, lib/finding.sh, lib/diff.sh, lib/tools.sh.
+# Invoked from hooks/post-write via bin/slopguard post-write --tier=fast.
+#
+# Tool resolution order (§9.1): project binary → plugin binary → PATH binary
+# (only when version matches lockfile).  Each tool runs under a per-tool
+# timeout (SLOPGUARD_FAST_TOOL_TIMEOUT, default 8 s) so one slow linter
+# cannot exhaust the 20 s hook budget.
+#
+# §2 Z2 diff filter:
+#   - maintainability / performance findings: only changed lines (git diff -U0).
+#   - security findings outside changed lines: emitted once per session as
+#     pre-existing scope with severity info.
+#   - Untracked files: judged whole (no line filter).
+#
+# §4.7 output: the caller (hooks/post-write) formats findings into one line
+# per finding.  dispatch_fast writes new findings (NDJSON, one JSON per line)
+# to the file path passed as $5, and also persists them via finding_add.
+
+# --------------------------------------------------------------------------- #
+# Internal helpers
+# --------------------------------------------------------------------------- #
+
+# _dispatch_timeout
+# Honour SLOPGUARD_FAST_TOOL_TIMEOUT (default 8 s).
+_dispatch_timeout() { printf '%s' "${SLOPGUARD_FAST_TOOL_TIMEOUT:-8}"; }
+
+# _dispatch_sha256 <string>
+# SHA-256 of a raw string (no trailing newline).
+_dispatch_sha256() {
+    if command -v sha256sum >/dev/null 2>&1; then
+        printf '%s' "$1" | sha256sum | cut -d' ' -f1
+    elif command -v shasum >/dev/null 2>&1; then
+        printf '%s' "$1" | shasum -a 256 | cut -d' ' -f1
+    else
+        printf 'dispatch: sha256 unavailable\n' >&2
+        return 1
+    fi
+}
+
+# _dispatch_cwe_json <cwe_string>
+# Convert a space-separated CWE list like "CWE-89 CWE-94" to a JSON array.
+_dispatch_cwe_json() {
+    local cwe="${1:-}"
+    [ -z "$cwe" ] || [ "$cwe" = '""' ] || [ "$cwe" = "none" ] || [ "$cwe" = "-" ] && {
+        printf '[]'; return
+    }
+    # Strip any surrounding quotes the YAML parser may have left.
+    cwe="$(printf '%s' "$cwe" | tr -d '"'"'")"
+    [ -z "$cwe" ] && { printf '[]'; return; }
+    printf '[' 
+    local first=1 tok
+    for tok in $cwe; do
+        [ "$first" -eq 1 ] || printf ','
+        printf '"%s"' "$tok"
+        first=0
+    done
+    printf ']'
+}
+
+# _dispatch_map_lookup <mapping_yaml> <rule_id>
+# Look up a rule in the mapping YAML and print TAB-separated:
+#   ap_id  severity  category  cwe
+# Prints nothing and exits 1 if the rule is not mapped.
+_dispatch_map_lookup() {
+    local yaml="$1" target="$2"
+    [ -f "$yaml" ] || return 1
+    awk -v target="$target" '
+        /^  [^ ]/ {
+            # A 2-space-indented line is a rule key (4-space lines are fields).
+            # Flush previous block if it matched.
+            if (current == target && ap != "") {
+                printf "%s\t%s\t%s\t%s\n", ap, sev, cat, cw
+                exit
+            }
+            current = $1
+            sub(/:$/, "", current)
+            gsub(/^["'"'"']|["'"'"']$/, "", current)  # strip YAML quotes from key
+            ap = ""; sev = ""; cat = ""; cw = ""
+        }
+        /^    ap_id:/    { ap  = $2 }
+        /^    severity:/ { sev = $2 }
+        /^    category:/ { cat = $2 }
+        /^    cwe:/      {
+            cw = $2
+            gsub(/["'"'"']/, "", cw)   # strip YAML quotes from value
+        }
+        END {
+            if (current == target && ap != "") {
+                printf "%s\t%s\t%s\t%s\n", ap, sev, cat, cw
+            }
+        }
+    ' "$yaml"
+}
+
+# _dispatch_default_severity <category>
+# Apply §4.8 defaults when a rule is not in the mapping YAML.
+_dispatch_default_severity() {
+    local cat="${1:-security}"
+    case "$cat" in
+        security)      printf 'error' ;;
+        performance)   printf 'warn' ;;
+        maintainability) printf 'warn' ;;
+        *)             printf 'warn' ;;
+    esac
+}
+
+# _dispatch_fingerprint_seen <session_id> <agent_id> <fp_hex>
+# Exit 0 if sha256:<fp_hex> already exists in findings.json.
+_dispatch_fingerprint_seen() {
+    local session_id="$1" agent_id="$2" fp="$3"
+    local dir; dir="$(state_dir "$session_id" "$agent_id")"
+    [ -f "${dir}/findings.json" ] || return 1
+    jq -e --arg fp "sha256:${fp}" \
+        'map(select(.fingerprint == $fp)) | length > 0' \
+        "${dir}/findings.json" >/dev/null 2>&1
+}
+
+# _dispatch_preexisting_seen <session_id> <agent_id> <fp_hex>
+# Exit 0 if the pre-existing marker file already exists (once-per-session gate).
+_dispatch_preexisting_seen() {
+    local session_id="$1" agent_id="$2" fp="$3"
+    local dir; dir="$(state_dir "$session_id" "$agent_id")"
+    [ -f "${dir}/.preexist-${fp}" ]
+}
+
+# _dispatch_preexisting_mark <session_id> <agent_id> <fp_hex>
+_dispatch_preexisting_mark() {
+    local session_id="$1" agent_id="$2" fp="$3"
+    local dir; dir="$(state_dir "$session_id" "$agent_id")"
+    mkdir -p "$dir"
+    : > "${dir}/.preexist-${fp}"
+}
+
+# _dispatch_tool_unavail_seen <session_id> <agent_id> <tool>
+_dispatch_tool_unavail_seen() {
+    local session_id="$1" agent_id="$2" tool="$3"
+    local dir; dir="$(state_dir "$session_id" "$agent_id")"
+    [ -f "${dir}/.tool-unavail-${tool}" ]
+}
+
+# _dispatch_tool_unavail_mark <session_id> <agent_id> <tool>
+_dispatch_tool_unavail_mark() {
+    local session_id="$1" agent_id="$2" tool="$3"
+    local dir; dir="$(state_dir "$session_id" "$agent_id")"
+    mkdir -p "$dir"
+    : > "${dir}/.tool-unavail-${tool}"
+}
+
+# _dispatch_emit  session_id agent_id ap_id tool tool_rule category severity
+#                 cwe_json file line end_line message fix scope snippet
+#                 findings_out
+# Deduplicates by fingerprint; if new: calls finding_add + appends NDJSON.
+_dispatch_emit() {
+    local session_id="$1"  agent_id="$2"   ap_id="$3"     tool="$4"
+    local tool_rule="$5"   category="$6"   severity="$7"  cwe_json="$8"
+    local file="$9"        line="${10}"     end_line="${11}"
+    local message="${12}"  fix="${13}"      scope="${14}"   snippet="${15}"
+    local findings_out="${16}"
+
+    # Fingerprint: sha256(tool|rule|file|snippet)
+    local raw_fp
+    raw_fp="$(_dispatch_sha256 "${tool}|${tool_rule}|${file}|${snippet}")" || return 0
+
+    # Dedup: skip if fingerprint already in findings.json.
+    if _dispatch_fingerprint_seen "$session_id" "$agent_id" "$raw_fp"; then
+        return 0
+    fi
+
+    # Persist via finding_add.
+    finding_add "$session_id" "$agent_id" \
+        "$ap_id" "$tool" "$tool_rule" \
+        "$category" "$severity" "$cwe_json" \
+        "$file" "$line" "$end_line" \
+        "$message" "$fix" "$scope" \
+        "$snippet" || return 0
+
+    # Append NDJSON line to findings_out (compact: one JSON object per line).
+    jq -n -c \
+        --arg     ap_id     "$ap_id"     \
+        --arg     tool      "$tool"      \
+        --arg     tool_rule "$tool_rule" \
+        --arg     category  "$category"  \
+        --arg     severity  "$severity"  \
+        --argjson cwe       "$cwe_json"  \
+        --arg     file      "$file"      \
+        --argjson line      "$line"      \
+        --argjson end_line  "$end_line"  \
+        --arg     message   "$message"   \
+        --arg     fix       "$fix"       \
+        --arg     scope     "$scope"     \
+        '{ap_id:$ap_id,tool:$tool,tool_rule:$tool_rule,category:$category,
+          severity:$severity,cwe:$cwe,file:$file,line:$line,end_line:$end_line,
+          message:$message,fix:$fix,scope:$scope}' >> "$findings_out" 2>/dev/null
+}
+
+# _dispatch_filter_emit  session_id agent_id ap_id tool tool_rule category severity
+#                        cwe_json file line end_line message fix snippet
+#                        is_untracked changed_ranges findings_out
+# Apply Z2 line filter before emitting.
+# shellcheck disable=SC2086  # (ranges expansion is intentional)
+_dispatch_filter_emit() {
+    local session_id="$1"  agent_id="$2"   ap_id="$3"     tool="$4"
+    local tool_rule="$5"   category="$6"   severity="$7"  cwe_json="$8"
+    local file="$9"        line="${10}"     end_line="${11}"
+    local message="${12}"  fix="${13}"      snippet="${14}"
+    local is_untracked="${15}"  changed_ranges="${16}"  findings_out="${17}"
+
+    if [ "$is_untracked" -eq 1 ]; then
+        # Untracked files: judge whole file.
+        _dispatch_emit "$session_id" "$agent_id" \
+            "$ap_id" "$tool" "$tool_rule" \
+            "$category" "$severity" "$cwe_json" \
+            "$file" "$line" "$end_line" \
+            "$message" "$fix" "changed-lines" "$snippet" \
+            "$findings_out"
+        return
+    fi
+
+    # Tracked file with diff filter.
+    local in_range=0
+    [ -z "$changed_ranges" ] || diff_line_in_ranges "$line" "$changed_ranges" && in_range=1
+
+    if [ "$in_range" -eq 1 ]; then
+        _dispatch_emit "$session_id" "$agent_id" \
+            "$ap_id" "$tool" "$tool_rule" \
+            "$category" "$severity" "$cwe_json" \
+            "$file" "$line" "$end_line" \
+            "$message" "$fix" "changed-lines" "$snippet" \
+            "$findings_out"
+    elif [ "$category" = "security" ]; then
+        # Security outside changed lines: emit once per session as pre-existing info.
+        local snippet_trunc="${snippet:0:120}"
+        local pre_fp
+        pre_fp="$(_dispatch_sha256 "${tool}|${tool_rule}|${file}|${snippet_trunc}")" || return 0
+        if ! _dispatch_preexisting_seen "$session_id" "$agent_id" "$pre_fp"; then
+            _dispatch_preexisting_mark "$session_id" "$agent_id" "$pre_fp"
+            _dispatch_emit "$session_id" "$agent_id" \
+                "$ap_id" "$tool" "$tool_rule" \
+                "security" "info" "$cwe_json" \
+                "$file" "$line" "$end_line" \
+                "$message" "$fix" "pre-existing" "${snippet_trunc}" \
+                "$findings_out"
+        fi
+    fi
+    # Performance/maintainability outside changed lines: silently filtered (Z2).
+}
+
+# --------------------------------------------------------------------------- #
+# Tool-specific runners
+# --------------------------------------------------------------------------- #
+
+# _dispatch_run_ruff  file session_id agent_id project_dir
+#                     is_untracked changed_ranges findings_out
+_dispatch_run_ruff() {
+    local file="$1" session_id="$2" agent_id="$3" project_dir="$4"
+    local is_untracked="$5" changed_ranges="$6" findings_out="$7"
+
+    local tool_bin; tool_bin="$(CLAUDE_PROJECT_DIR="$project_dir" resolve_tool ruff 2>/dev/null || true)"
+    if [ -z "$tool_bin" ]; then
+        if ! _dispatch_tool_unavail_seen "$session_id" "$agent_id" ruff; then
+            _dispatch_tool_unavail_mark "$session_id" "$agent_id" ruff
+            printf 'slopguard: ruff unavailable — run: slopguard doctor --install\n' >&2
+        fi
+        return 0
+    fi
+
+    local config; config="$(tool_config_path ruff "$project_dir")"
+    local raw exit_code=0
+    raw="$(timeout "$(_dispatch_timeout)" \
+        "$tool_bin" check --config "$config" --output-format=json --no-fix --exit-zero \
+        "$file" 2>/dev/null)" || exit_code=$?
+    # exit_code 124 = timeout (fail-open), others = tool error (fail-open).
+    [ "$exit_code" -eq 0 ] || [ "$exit_code" -eq 1 ] || return 0
+    [ -n "$raw" ] || return 0
+
+    local mapping="${CLAUDE_PLUGIN_ROOT}/rules/mapping/ruff.yaml"
+
+    local code msg row end_row snippet ap_id severity category cwe_json fix
+    # Parse the JSON array using jq, emit one TSV line per finding.
+    while IFS=$'\t' read -r code msg row end_row; do
+        [ -n "$code" ] || continue
+
+        snippet="$(printf '%s' "$msg" | head -c 120)"
+        local lookup; lookup="$(_dispatch_map_lookup "$mapping" "$code")"
+        if [ -n "$lookup" ]; then
+            IFS=$'\t' read -r ap_id severity category cwe_str <<< "$lookup"
+            cwe_json="$(_dispatch_cwe_json "$cwe_str")"
+        else
+            ap_id="AP-PY-LINT-000"
+            category="maintainability"
+            severity="$(_dispatch_default_severity "$category")"
+            cwe_json='[]'
+        fi
+        fix=""
+
+        _dispatch_filter_emit \
+            "$session_id" "$agent_id" "$ap_id" "ruff" "$code" \
+            "$category" "$severity" "$cwe_json" \
+            "$file" "$row" "$end_row" "$msg" "$fix" "$snippet" \
+            "$is_untracked" "$changed_ranges" "$findings_out"
+    done <<< "$(printf '%s\n' "$raw" \
+        | jq -r '.[] | [.code, .message, (.row|tostring), (.end_row|tostring)] | @tsv' 2>/dev/null || true)"
+}
+
+# _dispatch_run_eslint_stack  file session_id agent_id project_dir
+#                             is_untracked changed_ranges findings_out
+_dispatch_run_eslint_stack() {
+    local file="$1" session_id="$2" agent_id="$3" project_dir="$4"
+    local is_untracked="$5" changed_ranges="$6" findings_out="$7"
+
+    local tool_bin; tool_bin="$(CLAUDE_PROJECT_DIR="$project_dir" resolve_tool eslint-stack 2>/dev/null || true)"
+    if [ -z "$tool_bin" ]; then
+        if ! _dispatch_tool_unavail_seen "$session_id" "$agent_id" eslint-stack; then
+            _dispatch_tool_unavail_mark "$session_id" "$agent_id" eslint-stack
+            printf 'slopguard: eslint-stack unavailable — run: slopguard doctor --install\n' >&2
+        fi
+        return 0
+    fi
+
+    local config; config="$(tool_config_path eslint-stack "$project_dir")"
+    local raw exit_code=0
+    raw="$(timeout "$(_dispatch_timeout)" \
+        "$tool_bin" --config "$config" --format json --no-warn-ignored \
+        "$file" 2>/dev/null)" || exit_code=$?
+    # 0 = ok/warnings only, 1 = errors, 2 = fatal; 124 = timeout.
+    [ "$exit_code" -eq 0 ] || [ "$exit_code" -eq 1 ] || return 0
+    [ -n "$raw" ] || return 0
+
+    local mapping="${CLAUDE_PLUGIN_ROOT}/rules/mapping/eslint.yaml"
+
+    local rule_id msg line endline ap_id severity category cwe_json fix snippet
+    while IFS=$'\t' read -r rule_id msg line endline; do
+        [ -n "$rule_id" ] || continue
+        snippet="$(printf '%s' "$msg" | head -c 120)"
+        local lookup; lookup="$(_dispatch_map_lookup "$mapping" "$rule_id")"
+        if [ -n "$lookup" ]; then
+            IFS=$'\t' read -r ap_id severity category cwe_str <<< "$lookup"
+            cwe_json="$(_dispatch_cwe_json "$cwe_str")"
+        else
+            ap_id="AP-TS-LINT-000"
+            category="maintainability"
+            severity="$(_dispatch_default_severity "$category")"
+            cwe_json='[]'
+        fi
+        fix=""
+
+        _dispatch_filter_emit \
+            "$session_id" "$agent_id" "$ap_id" "eslint" "$rule_id" \
+            "$category" "$severity" "$cwe_json" \
+            "$file" "$line" "${endline:-$line}" "$msg" "$fix" "$snippet" \
+            "$is_untracked" "$changed_ranges" "$findings_out"
+    done <<< "$(printf '%s\n' "$raw" \
+        | jq -r '.[] | .messages[] | [.ruleId // "unknown", .message, (.line|tostring), ((.endLine // .line)|tostring)] | @tsv' 2>/dev/null || true)"
+}
+
+# _dispatch_run_hadolint  file session_id agent_id project_dir
+#                         is_untracked changed_ranges findings_out
+_dispatch_run_hadolint() {
+    local file="$1" session_id="$2" agent_id="$3" project_dir="$4"
+    local is_untracked="$5" changed_ranges="$6" findings_out="$7"
+
+    local tool_bin; tool_bin="$(CLAUDE_PROJECT_DIR="$project_dir" resolve_tool hadolint 2>/dev/null || true)"
+    if [ -z "$tool_bin" ]; then
+        if ! _dispatch_tool_unavail_seen "$session_id" "$agent_id" hadolint; then
+            _dispatch_tool_unavail_mark "$session_id" "$agent_id" hadolint
+            printf 'slopguard: hadolint unavailable — run: slopguard doctor --install\n' >&2
+        fi
+        return 0
+    fi
+
+    local config; config="$(tool_config_path hadolint "$project_dir")"
+    local raw exit_code=0
+    raw="$(timeout "$(_dispatch_timeout)" \
+        "$tool_bin" --config "$config" -f json "$file" 2>/dev/null)" || exit_code=$?
+    [ "$exit_code" -eq 0 ] || [ "$exit_code" -eq 1 ] || return 0
+    [ -n "$raw" ] || return 0
+
+    local mapping="${CLAUDE_PLUGIN_ROOT}/rules/mapping/hadolint.yaml"
+
+    local code msg line ap_id severity category cwe_json fix snippet
+    while IFS=$'\t' read -r code msg line; do
+        [ -n "$code" ] || continue
+        snippet="$(printf '%s' "$msg" | head -c 120)"
+        local lookup; lookup="$(_dispatch_map_lookup "$mapping" "$code")"
+        if [ -n "$lookup" ]; then
+            IFS=$'\t' read -r ap_id severity category cwe_str <<< "$lookup"
+            cwe_json="$(_dispatch_cwe_json "$cwe_str")"
+        else
+            ap_id="AP-DOCKER-LINT-000"
+            category="maintainability"
+            severity="warn"
+            cwe_json='[]'
+        fi
+        fix=""
+
+        _dispatch_filter_emit \
+            "$session_id" "$agent_id" "$ap_id" "hadolint" "$code" \
+            "$category" "$severity" "$cwe_json" \
+            "$file" "$line" "$line" "$msg" "$fix" "$snippet" \
+            "$is_untracked" "$changed_ranges" "$findings_out"
+    done <<< "$(printf '%s\n' "$raw" \
+        | jq -r '.[] | [.code, .message, (.line|tostring)] | @tsv' 2>/dev/null || true)"
+}
+
+# _dispatch_run_kube_linter  file session_id agent_id project_dir
+#                             is_untracked changed_ranges findings_out
+_dispatch_run_kube_linter() {
+    local file="$1" session_id="$2" agent_id="$3" project_dir="$4"
+    local is_untracked="$5" changed_ranges="$6" findings_out="$7"
+
+    local tool_bin; tool_bin="$(CLAUDE_PROJECT_DIR="$project_dir" resolve_tool kube-linter 2>/dev/null || true)"
+    if [ -z "$tool_bin" ]; then
+        if ! _dispatch_tool_unavail_seen "$session_id" "$agent_id" kube-linter; then
+            _dispatch_tool_unavail_mark "$session_id" "$agent_id" kube-linter
+            printf 'slopguard: kube-linter unavailable — run: slopguard doctor --install\n' >&2
+        fi
+        return 0
+    fi
+
+    local config; config="$(tool_config_path kube-linter "$project_dir")"
+    local raw exit_code=0
+    raw="$(timeout "$(_dispatch_timeout)" \
+        "$tool_bin" lint --config "$config" --format json "$file" 2>/dev/null)" || exit_code=$?
+    [ "$exit_code" -eq 0 ] || [ "$exit_code" -eq 1 ] || return 0
+    [ -n "$raw" ] || return 0
+
+    local mapping="${CLAUDE_PLUGIN_ROOT}/rules/mapping/kube-linter.yaml"
+
+    local check msg ap_id severity category cwe_json fix snippet
+    while IFS=$'\t' read -r check msg; do
+        [ -n "$check" ] || continue
+        snippet="$(printf '%s' "$msg" | head -c 120)"
+        local lookup; lookup="$(_dispatch_map_lookup "$mapping" "$check")"
+        if [ -n "$lookup" ]; then
+            IFS=$'\t' read -r ap_id severity category cwe_str <<< "$lookup"
+            cwe_json="$(_dispatch_cwe_json "$cwe_str")"
+        else
+            ap_id="AP-K8S-LINT-000"
+            category="security"
+            severity="warn"
+            cwe_json='[]'
+        fi
+        fix=""
+
+        # kube-linter has no line numbers in JSON output; use 0.
+        _dispatch_filter_emit \
+            "$session_id" "$agent_id" "$ap_id" "kube-linter" "$check" \
+            "$category" "$severity" "$cwe_json" \
+            "$file" "0" "0" "$msg" "$fix" "$snippet" \
+            "$is_untracked" "$changed_ranges" "$findings_out"
+    done <<< "$(printf '%s\n' "$raw" \
+        | jq -r '.Reports[]? | [.Check, (.Diagnostic.Message // "")] | @tsv' 2>/dev/null || true)"
+}
+
+# _dispatch_run_zizmor  file session_id agent_id project_dir
+#                        is_untracked changed_ranges findings_out
+_dispatch_run_zizmor() {
+    local file="$1" session_id="$2" agent_id="$3" project_dir="$4"
+    local is_untracked="$5" changed_ranges="$6" findings_out="$7"
+
+    local tool_bin; tool_bin="$(CLAUDE_PROJECT_DIR="$project_dir" resolve_tool zizmor 2>/dev/null || true)"
+    if [ -z "$tool_bin" ]; then
+        if ! _dispatch_tool_unavail_seen "$session_id" "$agent_id" zizmor; then
+            _dispatch_tool_unavail_mark "$session_id" "$agent_id" zizmor
+            printf 'slopguard: zizmor unavailable — run: slopguard doctor --install\n' >&2
+        fi
+        return 0
+    fi
+
+    local config; config="$(tool_config_path zizmor "$project_dir")"
+    local raw exit_code=0
+    raw="$(timeout "$(_dispatch_timeout)" \
+        "$tool_bin" --config "$config" --format json --offline \
+        "$file" 2>/dev/null)" || exit_code=$?
+    [ "$exit_code" -eq 0 ] || [ "$exit_code" -eq 1 ] || return 0
+    [ -n "$raw" ] || return 0
+
+    local mapping="${CLAUDE_PLUGIN_ROOT}/rules/mapping/zizmor.yaml"
+
+    local rule_id msg line ap_id severity category cwe_json fix snippet
+    while IFS=$'\t' read -r rule_id msg line; do
+        [ -n "$rule_id" ] || continue
+        snippet="$(printf '%s' "$msg" | head -c 120)"
+        local lookup; lookup="$(_dispatch_map_lookup "$mapping" "$rule_id")"
+        if [ -n "$lookup" ]; then
+            IFS=$'\t' read -r ap_id severity category cwe_str <<< "$lookup"
+            cwe_json="$(_dispatch_cwe_json "$cwe_str")"
+        else
+            ap_id="AP-CI-LINT-000"
+            category="security"
+            severity="error"
+            cwe_json='[]'
+        fi
+        fix=""
+
+        _dispatch_filter_emit \
+            "$session_id" "$agent_id" "$ap_id" "zizmor" "$rule_id" \
+            "$category" "$severity" "$cwe_json" \
+            "$file" "$line" "$line" "$msg" "$fix" "$snippet" \
+            "$is_untracked" "$changed_ranges" "$findings_out"
+    done <<< "$(printf '%s\n' "$raw" \
+        | jq -r '.diagnostics[]? |
+            .ident as $id |
+            .finding.message as $msg |
+            ((.finding.locations[0].line_range.start.line // 0) | tostring) as $ln |
+            [$id, $msg, $ln] | @tsv' 2>/dev/null || true)"
+}
+
+# --------------------------------------------------------------------------- #
+# Tool selection
+# --------------------------------------------------------------------------- #
+
+# _dispatch_tools_for_file <file>
+# Print a space-separated list of tool names applicable to this file.
+# Routing is primarily by extension / filename pattern; stacks refine K8s vs CI.
+_dispatch_tools_for_file() {
+    local file="$1"
+    local filename="${file##*/}"
+    local ext="${filename##*.}"
+    local tools=""
+
+    # Python
+    case "$ext" in
+        py) tools="${tools} ruff" ;;
+    esac
+
+    # JavaScript / TypeScript
+    case "$ext" in
+        js|mjs|cjs|jsx|ts|mts|cts|tsx)
+            tools="${tools} eslint-stack" ;;
+    esac
+
+    # Dockerfile (by name or extension)
+    case "$filename" in
+        Dockerfile|*.dockerfile|Dockerfile.*)
+            tools="${tools} hadolint" ;;
+    esac
+    # Also catch paths like path/to/Dockerfile
+    case "$file" in
+        */Dockerfile|*/Dockerfile.*)
+            case "$tools" in *hadolint*) ;; *) tools="${tools} hadolint" ;; esac ;;
+    esac
+
+    # YAML: GitHub Actions → zizmor, K8s manifests → kube-linter
+    case "$ext" in
+        yaml|yml)
+            case "$file" in
+                */.github/workflows/*.yml|*/.github/workflows/*.yaml|\
+                .github/workflows/*.yml|.github/workflows/*.yaml)
+                    tools="${tools} zizmor" ;;
+                *)
+                    # K8s manifests: detect by content.
+                    if [ -f "$file" ] \
+                        && grep -q 'apiVersion:' "$file" 2>/dev/null \
+                        && grep -q 'kind:' "$file" 2>/dev/null; then
+                        tools="${tools} kube-linter"
+                    fi
+                    ;;
+            esac
+            ;;
+    esac
+
+    printf '%s' "${tools# }"
+}
+
+# --------------------------------------------------------------------------- #
+# Public entry point
+# --------------------------------------------------------------------------- #
+
+# dispatch_fast <file> <session_id> <agent_id> <project_dir> <findings_out>
+#
+# Runs all fast-tier tools applicable to <file>, applies the Z2 diff filter,
+# deduplicates by fingerprint, persists new findings via finding_add, and
+# writes new findings as NDJSON (one JSON object per line) to <findings_out>.
+# Always exits 0 (fail-open, §2 Z6).
+dispatch_fast() {
+    local file="$1" session_id="$2" agent_id="$3" project_dir="${4:-.}"
+    local findings_out="$5"
+
+    # Guard: file must exist and be readable.
+    [ -f "$file" ] || return 0
+
+    # Determine diff context.
+    local is_untracked=0
+    diff_is_untracked "$file" "$project_dir" 2>/dev/null && is_untracked=1
+
+    local changed_ranges=""
+    if [ "$is_untracked" -eq 0 ]; then
+        changed_ranges="$(diff_changed_ranges "$file" "$project_dir" 2>/dev/null || true)"
+    fi
+
+    # Select tools for this file.
+    local tools; tools="$(_dispatch_tools_for_file "$file")"
+    [ -n "$tools" ] || return 0
+
+    local tool
+    for tool in $tools; do
+        local fn="_dispatch_run_${tool//-/_}"
+        if command -v "$fn" >/dev/null 2>&1 || declare -f "$fn" >/dev/null 2>&1; then
+            "$fn" "$file" "$session_id" "$agent_id" "$project_dir" \
+                "$is_untracked" "$changed_ranges" "$findings_out" || true
+        fi
+    done
+
+    return 0
+}

@@ -1,0 +1,170 @@
+---
+# Ruff rule → AP-id mapping (§6.3, §8.3).
+# Severity defaults per §4.8: security+CWE-Top25 → blocker, other security → error,
+# performance → warn/error, maintainability → warn.
+# Each entry:
+#   ap_id:    AP-XX-YYY-NNN
+#   severity: blocker | error | warn | info
+#   category: security | performance | maintainability | supply-chain
+#   cwe:      CWE-NNN  (space-separated list, or empty)
+rules:
+  S608:
+    ap_id: AP-PY-SEC-001
+    severity: blocker
+    category: security
+    cwe: CWE-89
+  S602:
+    ap_id: AP-PY-SEC-002
+    severity: blocker
+    category: security
+    cwe: CWE-78
+  S605:
+    ap_id: AP-PY-SEC-002
+    severity: blocker
+    category: security
+    cwe: CWE-78
+  S604:
+    ap_id: AP-PY-SEC-002
+    severity: blocker
+    category: security
+    cwe: CWE-78
+  S301:
+    ap_id: AP-PY-SEC-003
+    severity: blocker
+    category: security
+    cwe: CWE-502
+  S506:
+    ap_id: AP-PY-SEC-003
+    severity: blocker
+    category: security
+    cwe: CWE-502
+  S403:
+    ap_id: AP-PY-SEC-003
+    severity: blocker
+    category: security
+    cwe: CWE-502
+  S113:
+    ap_id: AP-PY-SEC-004
+    severity: error
+    category: security
+    cwe: CWE-400
+  S501:
+    ap_id: AP-PY-SEC-005
+    severity: blocker
+    category: security
+    cwe: CWE-295
+  S311:
+    ap_id: AP-PY-SEC-006
+    severity: error
+    category: security
+    cwe: CWE-330
+  S307:
+    ap_id: AP-PY-SEC-007
+    severity: blocker
+    category: security
+    cwe: CWE-95
+  S102:
+    ap_id: AP-PY-SEC-007
+    severity: blocker
+    category: security
+    cwe: CWE-95
+  S105:
+    ap_id: AP-PY-SEC-008
+    severity: blocker
+    category: security
+    cwe: CWE-798
+  S106:
+    ap_id: AP-PY-SEC-008
+    severity: blocker
+    category: security
+    cwe: CWE-798
+  S107:
+    ap_id: AP-PY-SEC-008
+    severity: blocker
+    category: security
+    cwe: CWE-798
+  ASYNC100:
+    ap_id: AP-PY-PERF-002
+    severity: error
+    category: performance
+    cwe: ""
+  ASYNC110:
+    ap_id: AP-PY-PERF-002
+    severity: error
+    category: performance
+    cwe: ""
+  ASYNC210:
+    ap_id: AP-PY-PERF-002
+    severity: error
+    category: performance
+    cwe: ""
+  ASYNC220:
+    ap_id: AP-PY-PERF-002
+    severity: error
+    category: performance
+    cwe: ""
+  ASYNC221:
+    ap_id: AP-PY-PERF-002
+    severity: error
+    category: performance
+    cwe: ""
+  ASYNC222:
+    ap_id: AP-PY-PERF-002
+    severity: error
+    category: performance
+    cwe: ""
+  ASYNC230:
+    ap_id: AP-PY-PERF-002
+    severity: error
+    category: performance
+    cwe: ""
+  ASYNC251:
+    ap_id: AP-PY-PERF-002
+    severity: error
+    category: performance
+    cwe: ""
+  PERF401:
+    ap_id: AP-PY-PERF-003
+    severity: warn
+    category: performance
+    cwe: ""
+  PERF402:
+    ap_id: AP-PY-PERF-003
+    severity: warn
+    category: performance
+    cwe: ""
+  B006:
+    ap_id: AP-PY-MAINT-002
+    severity: error
+    category: maintainability
+    cwe: ""
+  B007:
+    ap_id: AP-PY-MAINT-002
+    severity: warn
+    category: maintainability
+    cwe: ""
+  E722:
+    ap_id: AP-PY-MAINT-001
+    severity: error
+    category: maintainability
+    cwe: ""
+  BLE001:
+    ap_id: AP-PY-MAINT-001
+    severity: error
+    category: maintainability
+    cwe: ""
+  DTZ005:
+    ap_id: AP-PY-MAINT-003
+    severity: warn
+    category: maintainability
+    cwe: ""
+  T201:
+    ap_id: AP-PY-MAINT-004
+    severity: warn
+    category: maintainability
+    cwe: ""
+  S101:
+    ap_id: AP-PY-MAINT-004
+    severity: warn
+    category: maintainability
+    cwe: ""

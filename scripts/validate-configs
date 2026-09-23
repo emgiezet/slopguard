@@ -315,76 +315,70 @@ else
         [ "${_mf##*/}" = ".gitkeep" ] && continue
         _fname="${_mf##*/}"
 
-        # Select extractor by filename (spec: one file per tool, named after the tool).
+        # Finalized mapping schema (Etap 2): rule ids are the keys of the
+        # top-level `rules:` map, each carrying ap_id, severity, category, cwe.
+        # The structural check runs everywhere; the id checks below need the
+        # tool itself and are skipped when it is absent.
+        # Keys may be quoted (`"@typescript-eslint/no-implied-eval":`), so the
+        # optional surrounding quotes are matched and dropped.
+        _codes=$(sed -n 's/^  "\{0,1\}\([A-Za-z0-9@][A-Za-z0-9._/@-]*\)"\{0,1\}:[[:space:]]*$/\1/p' "${_mf}" 2>/dev/null)
+        if [ -z "${_codes}" ]; then
+            _fail "mapping schema" "${_mf}: no rule ids under a top-level 'rules:' map"
+            continue
+        fi
+        _id_count=$(printf '%s\n' "${_codes}" | grep -c .)
+        _ap_count=$(grep -c '^    ap_id:' "${_mf}" 2>/dev/null || printf '0')
+        _sev_count=$(grep -c '^    severity:' "${_mf}" 2>/dev/null || printf '0')
+        if [ "${_ap_count}" -ne "${_id_count}" ] || [ "${_sev_count}" -ne "${_id_count}" ]; then
+            _fail "mapping schema" \
+                "${_mf}: ${_id_count} rule ids but ${_ap_count} ap_id and ${_sev_count} severity fields"
+        else
+            _pass "mapping schema: ${_fname} (${_id_count} rules)"
+        fi
+
+        # Select the rule-id authority by filename (spec §9: one file per tool).
         case "${_fname}" in
             ruff*|*python*)
-                # Ruff mapping: check ruff_rule: keys.
                 if tool_present ruff; then
                     _ruff_ids=$(ruff rule --all --output-format json 2>/dev/null \
                         | jq -r '.[].code' 2>/dev/null)
-                    # Split on commas first so multiple ids on one line are all captured.
-                    _codes=$(tr ',' '\n' < "${_mf}" \
-                        | sed -n 's/.*ruff_rule:[[:space:]]*\([A-Z][A-Z0-9]*[0-9][0-9]*\).*/\1/p' \
-                        2>/dev/null)
-                    if [ -z "${_codes}" ]; then
-                        _fail "ruff mapping consistency" \
-                            "${_mf}: zero ruff rule codes extracted (key 'ruff_rule:' absent — provisional)"
-                    else
-                        while IFS= read -r _code; do
-                            [ -z "${_code}" ] && continue
-                            if ! printf '%s\n' "${_ruff_ids}" | grep -qxF "${_code}"; then
-                                _fail "ruff rule: ${_code}" \
-                                    "(from ${_mf}) not found in ruff rule --all"
-                            fi
-                        done <<< "${_codes}"
-                    fi
+                    while IFS= read -r _code; do
+                        [ -z "${_code}" ] && continue
+                        if ! printf '%s\n' "${_ruff_ids}" | grep -qxF "${_code}"; then
+                            _fail "ruff rule: ${_code}" \
+                                "(from ${_mf}) not found in ruff rule --all"
+                        fi
+                    done <<< "${_codes}"
                 fi
                 ;;
             golangci*)
-                # golangci-lint mapping: check golangci_linter: keys.
                 if tool_present golangci-lint; then
                     _gl_linters=$(golangci-lint linters 2>/dev/null)
-                    _linters=$(tr ',' '\n' < "${_mf}" \
-                        | sed -n 's/.*golangci_linter:[[:space:]]*\([a-z][a-z_-]*\).*/\1/p' \
-                        2>/dev/null)
-                    if [ -z "${_linters}" ]; then
-                        _fail "golangci-lint mapping consistency" \
-                            "${_mf}: zero linter names extracted (key 'golangci_linter:' absent — provisional)"
-                    else
-                        while IFS= read -r _linter; do
-                            [ -z "${_linter}" ] && continue
-                            if ! printf '%s\n' "${_gl_linters}" | grep -qF "${_linter}"; then
-                                _fail "golangci-lint linter: ${_linter}" \
-                                    "(from ${_mf}) not found in golangci-lint linters"
-                            fi
-                        done <<< "${_linters}"
-                    fi
+                    while IFS= read -r _linter; do
+                        [ -z "${_linter}" ] && continue
+                        if ! printf '%s\n' "${_gl_linters}" | grep -qF "${_linter}"; then
+                            _fail "golangci-lint linter: ${_linter}" \
+                                "(from ${_mf}) not found in golangci-lint linters"
+                        fi
+                    done <<< "${_codes}"
                 fi
                 ;;
             kube*)
-                # kube-linter mapping: check kube_linter_check: keys.
                 if tool_present kube-linter; then
                     _kl_checks=$(kube-linter checks list 2>/dev/null)
-                    _checks=$(tr ',' '\n' < "${_mf}" \
-                        | sed -n 's/.*kube_linter_check:[[:space:]]*\([a-z][a-z-]*\).*/\1/p' \
-                        2>/dev/null)
-                    if [ -z "${_checks}" ]; then
-                        _fail "kube-linter mapping consistency" \
-                            "${_mf}: zero check names extracted (key 'kube_linter_check:' absent — provisional)"
-                    else
-                        while IFS= read -r _check; do
-                            [ -z "${_check}" ] && continue
-                            if ! printf '%s\n' "${_kl_checks}" | grep -qF "${_check}"; then
-                                _fail "kube-linter check: ${_check}" \
-                                    "(from ${_mf}) not found in kube-linter checks list"
-                            fi
-                        done <<< "${_checks}"
-                    fi
+                    while IFS= read -r _check; do
+                        [ -z "${_check}" ] && continue
+                        if ! printf '%s\n' "${_kl_checks}" | grep -qF "${_check}"; then
+                            _fail "kube-linter check: ${_check}" \
+                                "(from ${_mf}) not found in kube-linter checks list"
+                        fi
+                    done <<< "${_codes}"
                 fi
                 ;;
             *)
-                # No automated consistency check for this tool (checkov, sqlfluff, etc.).
-                _info "consistency check: no extractor for ${_fname} — not ruff/golangci/kube-linter"
+                # hadolint, zizmor, eslint: no machine-readable rule catalogue to
+                # diff against; the structural check above is what they get.
+                _info "consistency check: ${_fname} has no rule-catalogue extractor"
                 ;;
         esac
     done

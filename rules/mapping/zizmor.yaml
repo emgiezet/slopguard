@@ -1,0 +1,85 @@
+---
+# zizmor rule → AP-id mapping (§6.9, §8.7).
+# Severity per §6.9: template-injection/dangerous-triggers/unpinned-uses → blocker,
+# excessive-permissions/artipacked → error.
+rules:
+  template-injection:
+    ap_id: AP-CI-003
+    severity: blocker
+    category: security
+    cwe: ""
+  dangerous-triggers:
+    ap_id: AP-CI-002
+    severity: blocker
+    category: security
+    cwe: ""
+  unpinned-uses:
+    ap_id: AP-CI-001
+    severity: blocker
+    category: security
+    cwe: ""
+  excessive-permissions:
+    ap_id: AP-CI-004
+    severity: error
+    category: security
+    cwe: ""
+  artipacked:
+    ap_id: AP-CI-005
+    severity: error
+    category: security
+    cwe: ""
+  ref-confusion:
+    ap_id: AP-CI-LINT-000
+    severity: error
+    category: security
+    cwe: ""
+  pull-request-target:
+    ap_id: AP-CI-002
+    severity: blocker
+    category: security
+    cwe: ""
+  hardcoded-container-credentials:
+    ap_id: AP-CI-LINT-000
+    severity: blocker
+    category: security
+    cwe: CWE-798
+  github-env-injection:
+    ap_id: AP-CI-003
+    severity: blocker
+    category: security
+    cwe: ""
+  insecure-commands:
+    ap_id: AP-CI-LINT-000
+    severity: blocker
+    category: security
+    cwe: ""
+  self-hosted-runner:
+    ap_id: AP-CI-LINT-000
+    severity: warn
+    category: security
+    cwe: ""
+  known-vulnerable-actions:
+    ap_id: AP-CI-LINT-000
+    severity: error
+    category: security
+    cwe: ""
+  use-trusted-publishing:
+    ap_id: AP-CI-LINT-000
+    severity: warn
+    category: security
+    cwe: ""
+  cache-poisoning:
+    ap_id: AP-CI-LINT-000
+    severity: error
+    category: security
+    cwe: ""
+  impostor-commit:
+    ap_id: AP-CI-LINT-000
+    severity: error
+    category: security
+    cwe: ""
+  unsound-contains:
+    ap_id: AP-CI-LINT-000
+    severity: warn
+    category: maintainability
+    cwe: ""

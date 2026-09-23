@@ -36,6 +36,8 @@ printf 'slop-guard test suite\n\n'
 . "${TESTS_DIR}/docs_test.sh"
 # shellcheck source=deps_test.sh
 . "${TESTS_DIR}/deps_test.sh"
+# shellcheck source=dispatch_test.sh
+. "${TESTS_DIR}/dispatch_test.sh"
 
 for standalone in read_test.sh session_test.sh; do
     if standalone_output="$("${TESTS_DIR}/${standalone}" 2>&1)"; then

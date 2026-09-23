@@ -3,6 +3,24 @@
 All notable changes to Slop Guard will be documented in this file.
 
 ## Unreleased
+- **Etap 2 (partial): fast-tier detection** (2026-09-23)
+  - `lib/diff.sh` (new): `diff_changed_ranges`, `diff_is_untracked`, `diff_line_in_ranges` — implements §2 Z2 changed-lines filter using `git diff -U0`; untracked files are judged whole.
+  - `lib/dispatch.sh` (new): `dispatch_fast` dispatcher; routes files to fast-tier tools by extension and filename pattern; per-tool timeout (`SLOPGUARD_FAST_TOOL_TIMEOUT`, default 8 s, §2 Z6 fail-open on timeout or missing binary); §2 Z2 line filter applied per finding category; fingerprint-based session deduplication; findings persisted via `finding_add`.
+  - `hooks/post-write` (new): `PostToolUse` hook runs `dispatch_fast`, formats output per §4.7 (one line per finding, grouped by file, max 20 findings, < 4000 chars), enforces §4.6 modes (`advisory` → `additionalContext`; `balanced`/`strict` → `exit 2` + stderr on blocker/error, `additionalContext` on warn).
+  - `hooks/hooks.json`: `PostToolUse` entry added — matcher `Write|Edit|MultiEdit|NotebookEdit`, calls `slopguard post-write --tier=fast`, timeout 20 s.
+  - `bin/slopguard`: `post-write` subcommand added (sources `lib/diff.sh` and `lib/dispatch.sh`, then delegates to `hooks/post-write`).
+  - Five fast-tier tools wired (all already in `tools.lock.json`):
+    - **Ruff** (`ruff check --config $CONFIG --output-format=json --no-fix --exit-zero $FILE`) — Python.
+    - **ESLint without type-info** (`eslint --config $CONFIG --format json --no-warn-ignored $FILE`) — JS/TS.
+    - **hadolint** (`hadolint --config $CONFIG -f json $FILE`) — Dockerfile.
+    - **kube-linter** (`kube-linter lint --config $CONFIG --format json $FILE`) — Kubernetes YAML.
+    - **zizmor** (`zizmor --config $CONFIG --format json --offline $FILE`) — GitHub Actions YAML.
+  - `rules/mapping/{ruff,eslint,hadolint,kube-linter,zizmor}.yaml` (new): YAML mapping files (parsed by awk in `dispatch_map_lookup`) linking tool rule IDs to `AP-*` ids, severity, category, and CWE.
+  - `tests/dispatch_test.sh` (new): 36 offline assertions covering mapping lookups per tool, diff-filter (changed line reported, unchanged maint/perf finding filtered, untracked file judged whole), fail-open (missing tool, timeout), 20-finding cap, fingerprint deduplication, routing by extension, end-to-end §4.7 message format.
+  - Fixtures added: `tests/fixtures/{python,ts,docker,kubernetes,ci}/bad/` — one bad fixture per wired tool.
+  - Remaining fast-tier tools (not yet in `tools.lock.json`, wiring blocked until Etap 0 pinning): `kubeconform`, `actionlint`, `squawk`, `sqlfluff`, `terraform fmt`/`tofu fmt`, `pint`/`php-cs-fixer`.
+  - `docs/slop-guard-spec.md` §11.3 updated to record what Etap 2 delivered and what remains.
+
 - Grok runtime support: `lib/hook.sh` detects Grok via a compound condition on `GROK_PLUGIN_ROOT` and `CLAUDE_PLUGIN_ROOT` (presence of `GROK_PLUGIN_ROOT` alone is insufficient — a stale inherited variable in a Claude session would cause every deny to be silently ignored). `hook_input` normalizes Grok's camelCase event fields (`sessionId`, `hookEventName`, `toolName`, `toolInput`) to snake_case at the boundary so all policy scripts remain host-agnostic. `hook_deny`, `hook_secret_deny`, `hook_ask`, `hook_allow`, `hook_context`, and `hook_message` emit the host-correct envelope: Grok uses `{"decision":"deny","reason":…}` and exit-0 for allow; `hook_ask` becomes deny on Grok (fail-closed). `lib/state.sh`: `CLAUDE_PLUGIN_DATA` falls back to `GROK_PLUGIN_DATA` when the latter is set. `bin/slopguard`: seeds `CLAUDE_PLUGIN_ROOT`/`CLAUDE_PLUGIN_DATA` from `GROK_PLUGIN_ROOT`/`GROK_PLUGIN_DATA` at startup, making the rest of the dispatcher host-agnostic. No `hooks/*` script required changes. Fixtures: `tests/hook-contract/grok-pre-tool-bash.json`, `tests/hook-contract/grok-pre-tool-write.json` (camelCase, as Grok sends them). Decision D22 recorded.
 - `hooks/pre-write` + `bin/slopguard note-docs`: the Context7 memory is now wired end to end.
   A lookup that matches a framework the project runs records `<context7-query>@<major.minor>`;

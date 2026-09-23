@@ -59,6 +59,19 @@
           }
         ]
       }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/bin/slopguard",
+            "args": ["post-write", "--tier=fast"],
+            "timeout": 20
+          }
+        ]
+      }
     ]
   }
 }

@@ -1,0 +1,202 @@
+#!/usr/bin/env bash
+# post-write — PostToolUse gate for Write / Edit / MultiEdit / NotebookEdit.
+#
+# Runs fast-tier linters on the just-written file, applies the Z2 changed-lines
+# filter, and reports findings per §4.6 / §4.7.
+#
+# Exit codes (§3.2):
+#   exit 0 + JSON   — advisory: additionalContext; balanced/strict warn-only.
+#   exit 2          — balanced/strict: blocker or error findings → Claude sees stderr.
+set -uo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+PLUGIN_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+: "${CLAUDE_PLUGIN_ROOT:=$PLUGIN_ROOT}"
+
+# shellcheck source=../lib/hook.sh
+. "${PLUGIN_ROOT}/lib/hook.sh"
+# shellcheck source=../lib/state.sh
+. "${PLUGIN_ROOT}/lib/state.sh"
+# shellcheck source=../lib/finding.sh
+. "${PLUGIN_ROOT}/lib/finding.sh"
+# shellcheck source=../lib/tools.sh
+. "${PLUGIN_ROOT}/lib/tools.sh"
+# shellcheck source=../lib/diff.sh
+. "${PLUGIN_ROOT}/lib/diff.sh"
+# shellcheck source=../lib/dispatch.sh
+. "${PLUGIN_ROOT}/lib/dispatch.sh"
+
+hook_input
+
+tool_name="$(hook_field .tool_name)"
+file_path=""
+
+case "$tool_name" in
+    Write|Edit|MultiEdit)
+        file_path="$(hook_field .tool_input.file_path)" ;;
+    NotebookEdit)
+        file_path="$(hook_field .tool_input.notebook_path)" ;;
+    *) exit 0 ;;
+esac
+
+[ -n "$file_path" ] || exit 0
+[ -f "$file_path" ] || exit 0     # file may not exist after a failed write
+
+session_id="$(hook_field .session_id)"
+agent_id="$(hook_field .agent_id)"
+[ -n "$session_id" ] || exit 0
+
+enforcement="${CLAUDE_PLUGIN_OPTION_ENFORCEMENT_MODE:-balanced}"
+project_dir="${CLAUDE_PROJECT_DIR:-.}"
+
+# --------------------------------------------------------------------------- #
+# Run fast-tier dispatch into a temp file (NDJSON)
+# --------------------------------------------------------------------------- #
+
+findings_tmp="$(mktemp "${TMPDIR:-/tmp}/.sg-findings.XXXXXX")"
+trap 'rm -f "${findings_tmp}"' EXIT INT TERM
+
+dispatch_fast "$file_path" "$session_id" "${agent_id:-}" "$project_dir" "$findings_tmp"
+
+# If no findings were produced, exit cleanly.
+[ -s "$findings_tmp" ] || exit 0
+
+# --------------------------------------------------------------------------- #
+# Format findings per §4.7
+# --------------------------------------------------------------------------- #
+
+# Read all findings as a JSON array.
+findings_json="$(jq -s '.' "$findings_tmp" 2>/dev/null || printf '[]')"
+total="$(printf '%s\n' "$findings_json" | jq 'length' 2>/dev/null || printf '0')"
+[ "$total" -gt 0 ] || exit 0
+
+# Apply the 20-finding cap (Z4).
+MAX_FINDINGS=20
+capped="$(printf '%s\n' "$findings_json" | jq --argjson max "$MAX_FINDINGS" '.[0:$max]')"
+overflow=$(( total > MAX_FINDINGS ? total - MAX_FINDINGS : 0 ))
+
+# Count by severity in capped set.
+n_blocker="$(printf '%s\n' "$capped" | jq '[.[] | select(.severity=="blocker")] | length')"
+n_error="$(printf '%s\n' "$capped"   | jq '[.[] | select(.severity=="error")]   | length')"
+n_warn="$(printf '%s\n' "$capped"    | jq '[.[] | select(.severity=="warn")]    | length')"
+n_info="$(printf '%s\n' "$capped"    | jq '[.[] | select(.severity=="info")]    | length')"
+
+# Produce the header line.
+header_parts=""
+[ "$n_blocker" -gt 0 ] && header_parts="${header_parts}${n_blocker} blocker$([ "$n_blocker" -ne 1 ] && printf 's'), "
+[ "$n_error"   -gt 0 ] && header_parts="${header_parts}${n_error} error$([ "$n_error" -ne 1 ] && printf 's'), "
+[ "$n_warn"    -gt 0 ] && header_parts="${header_parts}${n_warn} warning$([ "$n_warn" -ne 1 ] && printf 's'), "
+[ "$n_info"    -gt 0 ] && header_parts="${header_parts}${n_info} info, "
+header_parts="${header_parts%, }"
+
+scope_label="in changed code"
+# If all are pre-existing, adjust label.
+n_preexist="$(printf '%s\n' "$capped" | jq '[.[] | select(.scope=="pre-existing")] | length')"
+if [ "$n_preexist" -eq "$total" ] && [ "$total" -gt 0 ]; then
+    scope_label="pre-existing (info)"
+fi
+
+header="slopguard: ${header_parts} ${scope_label}"
+
+# Build the per-finding lines (grouped by file, no ANSI).
+body_lines=""
+# Collect unique AP-ids for Details references.
+unique_ap_ids=""
+
+# Generate lines via jq.
+body_lines="$(printf '%s\n' "$capped" | jq -r '
+    group_by(.file)[] |
+    (.[0].file) as $f |
+    ($f + "\n") +
+    (map(
+        "  " +
+        (if .severity == "blocker" then "BLOCKER"
+         elif .severity == "error" then "ERROR  "
+         elif .severity == "warn"  then "WARN   "
+         else "INFO   " end) + " " +
+        (if .line > 0 then "L\(.line) " else "" end) +
+        .ap_id + " " +
+        (if (.cwe | length) > 0 then .cwe[0] + " " else "" end) +
+        "[\(.tool):\(.tool_rule)] " +
+        .message +
+        (if .fix != "" then ". Fix: " + .fix else "" end)
+    ) | join("\n"))
+' 2>/dev/null || true)"
+
+# Unique AP-ids for Details lines.
+unique_ap_ids="$(printf '%s\n' "$capped" | jq -r \
+    '[.[] | select(.severity == "blocker" or .severity == "error") | .ap_id] | unique | .[]' \
+    2>/dev/null | head -5 || true)"
+
+details_lines=""
+while IFS= read -r ap_id_entry; do
+    [ -n "$ap_id_entry" ] || continue
+    # Derive skill name from AP prefix.
+    lang_prefix="${ap_id_entry%%-*}"
+    lang_prefix="$(printf '%s' "$lang_prefix" | tr '[:upper:]' '[:lower:]')"
+    # Map AP prefix to skill directory name.
+    skill_name=""
+    case "$ap_id_entry" in
+        AP-PHP-*)  skill_name="php-antipatterns" ;;
+        AP-GO-*)   skill_name="go-antipatterns" ;;
+        AP-PY-*)   skill_name="python-antipatterns" ;;
+        AP-TS-*|AP-NODE-*) skill_name="ts-react-antipatterns" ;;
+        AP-K8S-*|AP-TF-*|AP-DOCKER-*|AP-CI-*) skill_name="iac-antipatterns" ;;
+        AP-SQL-*)  skill_name="sql-antipatterns" ;;
+        *)         skill_name="${lang_prefix}-antipatterns" ;;
+    esac
+    details_lines="${details_lines}Details: skills ${skill_name}/reference/${ap_id_entry}.md\n"
+done <<< "$unique_ap_ids"
+
+# Build final message.
+msg="${header}"$'\n'"${body_lines}"
+[ -n "$details_lines" ] && msg="${msg}"$'\n'"$(printf '%b' "${details_lines}")"
+if [ "$overflow" -gt 0 ]; then
+    msg="${msg}"$'\n'"+${overflow} more findings (run: slopguard scan ${file_path})"
+fi
+
+# Trim to 4000 chars (Z4 hard limit).
+if [ "${#msg}" -gt 4000 ]; then
+    msg="${msg:0:3990}..."
+fi
+
+# --------------------------------------------------------------------------- #
+# Enforce §4.6 modes
+# --------------------------------------------------------------------------- #
+
+max_severity="info"
+[ "$n_warn"    -gt 0 ] && max_severity="warn"
+[ "$n_error"   -gt 0 ] && max_severity="error"
+[ "$n_blocker" -gt 0 ] && max_severity="blocker"
+
+case "$enforcement" in
+    advisory)
+        # All findings go to additionalContext; nothing blocks.
+        hook_context "$msg"
+        ;;
+    balanced|strict)
+        if [ "$max_severity" = "blocker" ] || [ "$max_severity" = "error" ]; then
+            # Blocking findings: emit on stderr and exit 2.
+            printf '%s\n' "$msg" >&2
+            exit 2
+        elif [ "$max_severity" = "warn" ]; then
+            # Warn-only: go to additionalContext (max 10 warns per §4.6).
+            if [ "$n_warn" -gt 10 ]; then
+                warn_msg="$(printf '%s\n' "$capped" | jq -r \
+                    '[.[] | select(.severity=="warn")] | .[0:10] |
+                     group_by(.file)[] |
+                     (.[0].file) + "\n" +
+                     (map("  WARN    " + (if .line > 0 then "L\(.line) " else "" end) +
+                          .ap_id + " [\(.tool):\(.tool_rule)] " + .message) | join("\n"))
+                    ' 2>/dev/null || true)"
+                warn_overflow=$(( n_warn - 10 ))
+                hook_context "slopguard: ${n_warn} warnings in changed code"$'\n'"${warn_msg}"$'\n'"+${warn_overflow} more (run: slopguard scan ${file_path})"
+            else
+                hook_context "$msg"
+            fi
+        fi
+        # info findings are only logged (no output to agent).
+        ;;
+esac
+
+exit 0

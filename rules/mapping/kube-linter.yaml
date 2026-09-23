@@ -1,0 +1,94 @@
+---
+# kube-linter check → AP-id mapping (§6.7, §8.7).
+# Severity per §6.7 table; security checks follow §4.8.
+rules:
+  privileged-container:
+    ap_id: AP-K8S-001
+    severity: blocker
+    category: security
+    cwe: ""
+  privilege-escalation-container:
+    ap_id: AP-K8S-001
+    severity: blocker
+    category: security
+    cwe: ""
+  run-as-non-root:
+    ap_id: AP-K8S-001
+    severity: blocker
+    category: security
+    cwe: ""
+  host-network:
+    ap_id: AP-K8S-006
+    severity: error
+    category: security
+    cwe: ""
+  sensitive-host-mounts:
+    ap_id: AP-K8S-006
+    severity: error
+    category: security
+    cwe: ""
+  env-var-secret:
+    ap_id: AP-K8S-005
+    severity: blocker
+    category: security
+    cwe: ""
+  unset-cpu-requirements:
+    ap_id: AP-K8S-002
+    severity: error
+    category: performance
+    cwe: ""
+  unset-memory-requirements:
+    ap_id: AP-K8S-002
+    severity: error
+    category: performance
+    cwe: ""
+  no-read-only-root-fs:
+    ap_id: AP-K8S-006
+    severity: error
+    category: security
+    cwe: ""
+  latest-tag:
+    ap_id: AP-K8S-003
+    severity: error
+    category: security
+    cwe: ""
+  no-liveness-probe:
+    ap_id: AP-K8S-004
+    severity: warn
+    category: performance
+    cwe: ""
+  no-readiness-probe:
+    ap_id: AP-K8S-004
+    severity: warn
+    category: performance
+    cwe: ""
+  default-service-account:
+    ap_id: AP-K8S-LINT-000
+    severity: warn
+    category: security
+    cwe: ""
+  dangling-service:
+    ap_id: AP-K8S-LINT-000
+    severity: warn
+    category: maintainability
+    cwe: ""
+  mismatching-selector:
+    ap_id: AP-K8S-LINT-000
+    severity: error
+    category: maintainability
+    cwe: ""
+  non-existent-service-account:
+    ap_id: AP-K8S-LINT-000
+    severity: warn
+    category: maintainability
+    cwe: ""
+  required-label-owner:
+    ap_id: AP-K8S-LINT-000
+    severity: warn
+    category: maintainability
+    cwe: ""
+  required-annotation-email:
+    ap_id: AP-K8S-LINT-000
+    severity: warn
+    category: maintainability
+    cwe: ""

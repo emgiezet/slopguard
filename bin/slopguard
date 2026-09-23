@@ -74,6 +74,37 @@ cmd_pre_write() {
 cmd_pre_read() {
     "${PLUGIN_ROOT}/hooks/pre-read"
 }
+
+# --------------------------------------------------------------------------- #
+# post-write
+# --------------------------------------------------------------------------- #
+
+cmd_post_write() {
+    # Parse --tier=<value> flag; other args are silently ignored for
+    # forward-compatibility with future tiers.
+    local tier="fast"
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --tier=*) tier="${1#--tier=}"; shift ;;
+            --tier)   tier="${2:-fast}";   shift 2 ;;
+            *)        shift ;;
+        esac
+    done
+    case "$tier" in
+        fast)
+            # shellcheck source=../lib/diff.sh
+            . "${CLAUDE_PLUGIN_ROOT}/lib/diff.sh"
+            # shellcheck source=../lib/dispatch.sh
+            . "${CLAUDE_PLUGIN_ROOT}/lib/dispatch.sh"
+            "${PLUGIN_ROOT}/hooks/post-write"
+            ;;
+        *)
+            # Unknown tier: exit 0 (fail-open — future tiers are not errors).
+            exit 0
+            ;;
+    esac
+}
+
 # --------------------------------------------------------------------------- #
 # note-docs
 # --------------------------------------------------------------------------- #
@@ -295,7 +326,7 @@ USAGE
 # --------------------------------------------------------------------------- #
 
 case "${1:-help}" in
-    session-start|pre-bash|pre-write|pre-read|doctor|note-docs|deps-check) ensure_jq ;;
+    session-start|pre-bash|pre-write|pre-read|post-write|doctor|note-docs|deps-check) ensure_jq ;;
 esac
 
 case "${1:-help}" in
@@ -303,6 +334,7 @@ case "${1:-help}" in
     pre-bash)          shift; cmd_pre_bash "$@" ;;
     pre-write)         shift; cmd_pre_write "$@" ;;
     pre-read)          shift; cmd_pre_read "$@" ;;
+    post-write)        shift; cmd_post_write "$@" ;;
     doctor)            shift; cmd_doctor "$@" ;;
     note-docs)         shift; cmd_note_docs "$@" ;;
     deps-check)        shift; cmd_deps_check "$@" ;;

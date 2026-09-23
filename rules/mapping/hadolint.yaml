@@ -1,0 +1,314 @@
+---
+# hadolint rule → AP-id mapping (§6.8, §8.7).
+# DL3002, DL3006, DL3007, DL4006 are overridden to error in the baseline config.
+rules:
+  DL3007:
+    ap_id: AP-DOCKER-001
+    severity: error
+    category: security
+    cwe: ""
+  DL3006:
+    ap_id: AP-DOCKER-001
+    severity: error
+    category: security
+    cwe: ""
+  DL3002:
+    ap_id: AP-DOCKER-002
+    severity: error
+    category: security
+    cwe: ""
+  DL4006:
+    ap_id: AP-DOCKER-004
+    severity: error
+    category: security
+    cwe: ""
+  DL3000:
+    ap_id: AP-DOCKER-LINT-000
+    severity: warn
+    category: maintainability
+    cwe: ""
+  DL3001:
+    ap_id: AP-DOCKER-LINT-000
+    severity: warn
+    category: maintainability
+    cwe: ""
+  DL3003:
+    ap_id: AP-DOCKER-LINT-000
+    severity: warn
+    category: maintainability
+    cwe: ""
+  DL3004:
+    ap_id: AP-DOCKER-LINT-000
+    severity: warn
+    category: maintainability
+    cwe: ""
+  DL3005:
+    ap_id: AP-DOCKER-LINT-000
+    severity: warn
+    category: maintainability
+    cwe: ""
+  DL3008:
+    ap_id: AP-DOCKER-LINT-000
+    severity: info
+    category: maintainability
+    cwe: ""
+  DL3009:
+    ap_id: AP-DOCKER-LINT-000
+    severity: warn
+    category: maintainability
+    cwe: ""
+  DL3010:
+    ap_id: AP-DOCKER-LINT-000
+    severity: warn
+    category: maintainability
+    cwe: ""
+  DL3011:
+    ap_id: AP-DOCKER-LINT-000
+    severity: warn
+    category: maintainability
+    cwe: ""
+  DL3012:
+    ap_id: AP-DOCKER-LINT-000
+    severity: warn
+    category: maintainability
+    cwe: ""
+  DL3013:
+    ap_id: AP-DOCKER-LINT-000
+    severity: warn
+    category: maintainability
+    cwe: ""
+  DL3014:
+    ap_id: AP-DOCKER-LINT-000
+    severity: warn
+    category: maintainability
+    cwe: ""
+  DL3015:
+    ap_id: AP-DOCKER-LINT-000
+    severity: warn
+    category: maintainability
+    cwe: ""
+  DL3016:
+    ap_id: AP-DOCKER-LINT-000
+    severity: warn
+    category: maintainability
+    cwe: ""
+  DL3018:
+    ap_id: AP-DOCKER-LINT-000
+    severity: warn
+    category: maintainability
+    cwe: ""
+  DL3020:
+    ap_id: AP-DOCKER-LINT-000
+    severity: warn
+    category: maintainability
+    cwe: ""
+  DL3021:
+    ap_id: AP-DOCKER-LINT-000
+    severity: warn
+    category: maintainability
+    cwe: ""
+  DL3022:
+    ap_id: AP-DOCKER-LINT-000
+    severity: warn
+    category: maintainability
+    cwe: ""
+  DL3023:
+    ap_id: AP-DOCKER-LINT-000
+    severity: warn
+    category: maintainability
+    cwe: ""
+  DL3025:
+    ap_id: AP-DOCKER-LINT-000
+    severity: warn
+    category: maintainability
+    cwe: ""
+  DL3026:
+    ap_id: AP-DOCKER-LINT-000
+    severity: warn
+    category: maintainability
+    cwe: ""
+  DL3027:
+    ap_id: AP-DOCKER-LINT-000
+    severity: warn
+    category: maintainability
+    cwe: ""
+  DL3028:
+    ap_id: AP-DOCKER-LINT-000
+    severity: warn
+    category: maintainability
+    cwe: ""
+  DL3029:
+    ap_id: AP-DOCKER-LINT-000
+    severity: warn
+    category: maintainability
+    cwe: ""
+  DL3030:
+    ap_id: AP-DOCKER-LINT-000
+    severity: warn
+    category: maintainability
+    cwe: ""
+  DL3032:
+    ap_id: AP-DOCKER-LINT-000
+    severity: warn
+    category: maintainability
+    cwe: ""
+  DL3033:
+    ap_id: AP-DOCKER-LINT-000
+    severity: warn
+    category: maintainability
+    cwe: ""
+  DL3034:
+    ap_id: AP-DOCKER-LINT-000
+    severity: warn
+    category: maintainability
+    cwe: ""
+  DL3035:
+    ap_id: AP-DOCKER-LINT-000
+    severity: warn
+    category: maintainability
+    cwe: ""
+  DL3036:
+    ap_id: AP-DOCKER-LINT-000
+    severity: warn
+    category: maintainability
+    cwe: ""
+  DL3037:
+    ap_id: AP-DOCKER-LINT-000
+    severity: warn
+    category: maintainability
+    cwe: ""
+  DL3038:
+    ap_id: AP-DOCKER-LINT-000
+    severity: warn
+    category: maintainability
+    cwe: ""
+  DL3041:
+    ap_id: AP-DOCKER-LINT-000
+    severity: warn
+    category: maintainability
+    cwe: ""
+  DL3042:
+    ap_id: AP-DOCKER-LINT-000
+    severity: warn
+    category: maintainability
+    cwe: ""
+  DL3043:
+    ap_id: AP-DOCKER-LINT-000
+    severity: warn
+    category: maintainability
+    cwe: ""
+  DL3044:
+    ap_id: AP-DOCKER-LINT-000
+    severity: warn
+    category: maintainability
+    cwe: ""
+  DL3045:
+    ap_id: AP-DOCKER-LINT-000
+    severity: warn
+    category: maintainability
+    cwe: ""
+  DL3046:
+    ap_id: AP-DOCKER-LINT-000
+    severity: warn
+    category: maintainability
+    cwe: ""
+  DL3047:
+    ap_id: AP-DOCKER-LINT-000
+    severity: warn
+    category: maintainability
+    cwe: ""
+  DL3048:
+    ap_id: AP-DOCKER-LINT-000
+    severity: warn
+    category: maintainability
+    cwe: ""
+  DL3049:
+    ap_id: AP-DOCKER-LINT-000
+    severity: warn
+    category: maintainability
+    cwe: ""
+  DL3050:
+    ap_id: AP-DOCKER-LINT-000
+    severity: warn
+    category: maintainability
+    cwe: ""
+  DL3051:
+    ap_id: AP-DOCKER-LINT-000
+    severity: warn
+    category: maintainability
+    cwe: ""
+  DL3052:
+    ap_id: AP-DOCKER-LINT-000
+    severity: warn
+    category: maintainability
+    cwe: ""
+  DL3053:
+    ap_id: AP-DOCKER-LINT-000
+    severity: warn
+    category: maintainability
+    cwe: ""
+  DL3054:
+    ap_id: AP-DOCKER-LINT-000
+    severity: warn
+    category: maintainability
+    cwe: ""
+  DL3055:
+    ap_id: AP-DOCKER-LINT-000
+    severity: warn
+    category: maintainability
+    cwe: ""
+  DL3056:
+    ap_id: AP-DOCKER-LINT-000
+    severity: warn
+    category: maintainability
+    cwe: ""
+  DL3057:
+    ap_id: AP-DOCKER-LINT-000
+    severity: warn
+    category: maintainability
+    cwe: ""
+  DL3058:
+    ap_id: AP-DOCKER-LINT-000
+    severity: warn
+    category: maintainability
+    cwe: ""
+  DL3059:
+    ap_id: AP-DOCKER-LINT-000
+    severity: warn
+    category: maintainability
+    cwe: ""
+  DL3060:
+    ap_id: AP-DOCKER-LINT-000
+    severity: warn
+    category: maintainability
+    cwe: ""
+  DL3061:
+    ap_id: AP-DOCKER-LINT-000
+    severity: warn
+    category: maintainability
+    cwe: ""
+  DL4000:
+    ap_id: AP-DOCKER-LINT-000
+    severity: warn
+    category: maintainability
+    cwe: ""
+  DL4001:
+    ap_id: AP-DOCKER-LINT-000
+    severity: warn
+    category: maintainability
+    cwe: ""
+  DL4003:
+    ap_id: AP-DOCKER-LINT-000
+    severity: warn
+    category: maintainability
+    cwe: ""
+  DL4004:
+    ap_id: AP-DOCKER-LINT-000
+    severity: warn
+    category: maintainability
+    cwe: ""
+  DL4005:
+    ap_id: AP-DOCKER-LINT-000
+    severity: warn
+    category: maintainability
+    cwe: ""

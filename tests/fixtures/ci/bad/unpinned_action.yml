@@ -1,0 +1,12 @@
+name: Bad CI
+
+on: [push]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      # Bad: action pinned to a tag, not a full SHA commit (AP-CI-001)
+      - uses: actions/checkout@v4
+      - name: Run tests
+        run: echo "tests"
