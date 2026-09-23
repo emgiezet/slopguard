@@ -14,7 +14,7 @@
     "published_jq": ".package.versions[$v].time"
   },
   "pypi": {
-    "manifests": ["pyproject.toml", "requirements.txt", "setup.py", "setup.cfg"],
+    "manifests": ["pyproject.toml", "requirements*.txt"],
     "lockfiles": ["poetry.lock", "uv.lock", "Pipfile.lock"],
     "url": "https://pypi.org/pypi/{package}/json",
     "latest_jq": ".info.version",
@@ -53,5 +53,12 @@
     "url": "https://search.maven.org/solrsearch/select?q={package}&rows=1&wt=json",
     "latest_jq": ".response.docs[0].latestVersion",
     "published_jq": ".response.docs[0].timestamp / 1000 | todate"
+  },
+  "crates": {
+    "manifests": ["Cargo.toml"],
+    "lockfiles": ["Cargo.lock"],
+    "url": "https://crates.io/api/v1/crates/{package}",
+    "latest_jq": ".crate.max_stable_version",
+    "published_jq": ".crate.updated_at"
   }
 }

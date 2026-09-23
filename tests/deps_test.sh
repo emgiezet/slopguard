@@ -205,8 +205,8 @@ _dt_rc=$?
 # =========================================================================== #
 
 (
-    CLAUDE_PLUGIN_OPTION_ALLOW_NETWORK=true
-    CLAUDE_PLUGIN_OPTION_DEPENDENCY_FRESHNESS=error
+    export CLAUDE_PLUGIN_OPTION_ALLOW_NETWORK=true
+    export CLAUDE_PLUGIN_OPTION_DEPENDENCY_FRESHNESS=error
     deps_check_main "${DEPS_WORK}/proj-major" > /dev/null 2>&1
 )
 _dt_rc=$?
@@ -216,8 +216,8 @@ _dt_rc=$?
 
 # --json must carry the same exit status: CI reads the JSON and the code.
 (
-    CLAUDE_PLUGIN_OPTION_ALLOW_NETWORK=true
-    CLAUDE_PLUGIN_OPTION_DEPENDENCY_FRESHNESS=error
+    export CLAUDE_PLUGIN_OPTION_ALLOW_NETWORK=true
+    export CLAUDE_PLUGIN_OPTION_DEPENDENCY_FRESHNESS=error
     deps_check_main --json "${DEPS_WORK}/proj-major" > /dev/null 2>&1
 )
 _dt_rc=$?
@@ -232,9 +232,9 @@ _dt_rc=$?
 (
     # Read by deps_check_main inside this subshell, not exported on purpose.
     # shellcheck disable=SC2034
-    CLAUDE_PLUGIN_OPTION_ALLOW_NETWORK=true
+    export CLAUDE_PLUGIN_OPTION_ALLOW_NETWORK=true
     # shellcheck disable=SC2034
-    CLAUDE_PLUGIN_OPTION_DEPENDENCY_FRESHNESS=warn
+    export CLAUDE_PLUGIN_OPTION_DEPENDENCY_FRESHNESS=warn
     deps_check_main "${DEPS_WORK}/proj-major" > /dev/null 2>&1
 )
 _dt_rc=$?
@@ -307,6 +307,377 @@ _dt_ok_count="$(printf '%s' "$_dt_json" | \
 [ "${_dt_ok_count:-0}" -ge 1 ] \
     && ok  "fetch failure: run continues; ${_dt_ok_count} ok package(s) processed" \
     || bad "fetch failure: run continues after failure" "ok_count=${_dt_ok_count}"
+
+# =========================================================================== #
+# 9. Cargo (crates) parser — offline
+# =========================================================================== #
+
+mkdir -p "${DEPS_WORK}/proj-crates"
+cat > "${DEPS_WORK}/proj-crates/Cargo.toml" << 'CARGO'
+[package]
+name = "myapp"
+version = "0.1.0"
+
+[dependencies]
+serde = "1.0.100"
+tokio = { version = "1.0.0", features = ["full"] }
+
+[dev-dependencies]
+test-helper = { workspace = true }
+CARGO
+
+# Unit: simple string form
+_dt_cargo="$(_deps_parse_cargo "${DEPS_WORK}/proj-crates/Cargo.toml" 2>/dev/null)"
+printf '%s\n' "$_dt_cargo" | grep -qF "serde|1.0.100" \
+    && ok  "cargo parser: simple string dep extracted" \
+    || bad "cargo parser: simple string dep extracted" "output: $_dt_cargo"
+
+# Unit: single-line inline table form { version = "..." }
+printf '%s\n' "$_dt_cargo" | grep -qF "tokio|1.0.0" \
+    && ok  "cargo parser: inline-table dep extracted" \
+    || bad "cargo parser: inline-table dep extracted" "output: $_dt_cargo"
+
+# Unit: workspace dep emits a skip note on stderr
+_dt_cargo_skip="$(_deps_parse_cargo "${DEPS_WORK}/proj-crates/Cargo.toml" 2>&1 >/dev/null)"
+printf '%s' "$_dt_cargo_skip" | grep -q "note:" \
+    && ok  "cargo parser: workspace dep skip note emitted" \
+    || bad "cargo parser: workspace dep skip note emitted" "stderr: $_dt_cargo_skip"
+
+# Integration: serde minor-behind, tokio major-behind
+cat > "${DEPS_WORK}/registries-crates.json" << 'CRATESJSON'
+{
+  "crates": {
+    "manifests": ["Cargo.toml"],
+    "url": "https://crates.io/api/v1/crates/{package}",
+    "latest_jq": ".crate.max_stable_version",
+    "published_jq": ".crate.updated_at"
+  }
+}
+CRATESJSON
+
+cat > "${DEPS_WORK}/fetch-crates.sh" << 'FETCHCRATES'
+#!/usr/bin/env bash
+case "$1" in
+    *crates.io*crates/serde)
+        printf '{"crate":{"max_stable_version":"1.0.219","updated_at":"2024-01-01T00:00:00.000Z"}}'
+        ;;
+    *crates.io*crates/tokio)
+        printf '{"crate":{"max_stable_version":"2.0.0","updated_at":"2024-01-01T00:00:00.000Z"}}'
+        ;;
+    *)  exit 1 ;;
+esac
+FETCHCRATES
+chmod +x "${DEPS_WORK}/fetch-crates.sh"
+
+_dt_crates_json="$(
+    SLOPGUARD_REGISTRIES_JSON="${DEPS_WORK}/registries-crates.json"
+    SLOPGUARD_FETCH_CMD="${DEPS_WORK}/fetch-crates.sh"
+    export CLAUDE_PLUGIN_OPTION_ALLOW_NETWORK=true
+    export CLAUDE_PLUGIN_OPTION_DEPENDENCY_FRESHNESS=warn
+    deps_check_main --json "${DEPS_WORK}/proj-crates" 2>/dev/null
+)"
+
+_dt_serde_v="$(printf '%s' "$_dt_crates_json" | \
+    jq -r '.[] | select(.package == "serde") | .verdict' 2>/dev/null)"
+[ "$_dt_serde_v" = "minor-behind" ] \
+    && ok  "crates e2e: serde 1.0.100 < 1.0.219 → minor-behind" \
+    || bad "crates e2e: serde minor-behind" "got: ${_dt_serde_v}"
+
+_dt_tokio_v="$(printf '%s' "$_dt_crates_json" | \
+    jq -r '.[] | select(.package == "tokio") | .verdict' 2>/dev/null)"
+[ "$_dt_tokio_v" = "major-behind" ] \
+    && ok  "crates e2e: tokio 1.0.0 < 2.0.0 → major-behind" \
+    || bad "crates e2e: tokio major-behind" "got: ${_dt_tokio_v}"
+
+# =========================================================================== #
+# 10. PyPI requirements.txt parser — offline
+# =========================================================================== #
+
+mkdir -p "${DEPS_WORK}/proj-pypi-req"
+cat > "${DEPS_WORK}/proj-pypi-req/requirements.txt" << 'REQS'
+requests==2.28.0
+Flask>=2.0,<4.0
+typing_extensions==4.9.0
+click
+# comment line
+-r requirements-dev.txt
+REQS
+
+_dt_reqs="$(_deps_parse_requirements \
+    "${DEPS_WORK}/proj-pypi-req/requirements.txt" 2>/dev/null)"
+
+# Unit: exact-pinned package
+printf '%s\n' "$_dt_reqs" | grep -qF "requests|==2.28.0" \
+    && ok  "requirements parser: exact-pinned package extracted" \
+    || bad "requirements parser: exact-pinned package extracted" "output: $_dt_reqs"
+
+# Unit: PEP 503 lowercase normalisation (Flask → flask)
+printf '%s\n' "$_dt_reqs" | grep -q "^flask|" \
+    && ok  "requirements parser: name lowercased (Flask → flask)" \
+    || bad "requirements parser: name lowercased" "output: $_dt_reqs"
+
+# Unit: PEP 503 underscore normalisation (typing_extensions → typing-extensions)
+printf '%s\n' "$_dt_reqs" | grep -qF "typing-extensions|==4.9.0" \
+    && ok  "requirements parser: underscore normalised to dash" \
+    || bad "requirements parser: underscore normalised" "output: $_dt_reqs"
+
+# Unit: no-version package gets * sentinel
+printf '%s\n' "$_dt_reqs" | grep -qF "click|*" \
+    && ok  "requirements parser: no-version dep gets * sentinel" \
+    || bad "requirements parser: no-version dep gets *" "output: $_dt_reqs"
+
+# Unit: pip option (-r ...) is silently skipped
+printf '%s\n' "$_dt_reqs" | grep -q "^-r\|requirements-dev" \
+    && bad "requirements parser: pip option -r must be skipped" "found in output" \
+    || ok  "requirements parser: pip option -r silently skipped"
+
+# Integration: requests minor-behind (2.28.0 < 2.31.0)
+cat > "${DEPS_WORK}/registries-pypi.json" << 'PYPIJSON'
+{
+  "pypi": {
+    "manifests": ["requirements*.txt"],
+    "url": "https://pypi.org/pypi/{package}/json",
+    "latest_jq": ".info.version",
+    "published_jq": ".urls[0].upload_time_iso_8601"
+  }
+}
+PYPIJSON
+
+cat > "${DEPS_WORK}/fetch-pypi.sh" << 'FETCHPYPI'
+#!/usr/bin/env bash
+case "$1" in
+    *pypi.org*requests*)
+        printf '{"info":{"version":"2.31.0"},"urls":[{"upload_time_iso_8601":"2023-05-22T00:00:00.000000Z"}]}'
+        ;;
+    *pypi.org*flask*)
+        printf '{"info":{"version":"3.0.0"},"urls":[{"upload_time_iso_8601":"2023-09-30T00:00:00.000000Z"}]}'
+        ;;
+    *pypi.org*typing-extensions*)
+        printf '{"info":{"version":"4.9.0"},"urls":[{"upload_time_iso_8601":"2023-12-01T00:00:00.000000Z"}]}'
+        ;;
+    *pypi.org*click*)
+        printf '{"info":{"version":"8.1.0"},"urls":[{"upload_time_iso_8601":"2023-12-01T00:00:00.000000Z"}]}'
+        ;;
+    *)  exit 1 ;;
+esac
+FETCHPYPI
+chmod +x "${DEPS_WORK}/fetch-pypi.sh"
+
+_dt_pypi_json="$(
+    SLOPGUARD_REGISTRIES_JSON="${DEPS_WORK}/registries-pypi.json"
+    SLOPGUARD_FETCH_CMD="${DEPS_WORK}/fetch-pypi.sh"
+    export CLAUDE_PLUGIN_OPTION_ALLOW_NETWORK=true
+    export CLAUDE_PLUGIN_OPTION_DEPENDENCY_FRESHNESS=warn
+    deps_check_main --json "${DEPS_WORK}/proj-pypi-req" 2>/dev/null
+)"
+
+_dt_req_v="$(printf '%s' "$_dt_pypi_json" | \
+    jq -r '.[] | select(.package == "requests") | .verdict' 2>/dev/null)"
+[ "$_dt_req_v" = "minor-behind" ] \
+    && ok  "pypi e2e (req): requests 2.28.0 < 2.31.0 → minor-behind" \
+    || bad "pypi e2e (req): requests minor-behind" "got: ${_dt_req_v}"
+
+# click has no version (pinned=*) → unknown
+_dt_click_v="$(printf '%s' "$_dt_pypi_json" | \
+    jq -r '.[] | select(.package == "click") | .verdict' 2>/dev/null)"
+[ "$_dt_click_v" = "unknown" ] \
+    && ok  "pypi e2e (req): click no-version → unknown" \
+    || bad "pypi e2e (req): click no-version → unknown" "got: ${_dt_click_v}"
+
+# =========================================================================== #
+# 11. PyPI pyproject.toml parser — offline
+# =========================================================================== #
+
+mkdir -p "${DEPS_WORK}/proj-pypi-toml"
+cat > "${DEPS_WORK}/proj-pypi-toml/pyproject.toml" << 'PYPROJ'
+[project]
+name = "myapp"
+version = "0.1.0"
+dependencies = [
+    "requests>=2.28.0",
+    "Click==8.1.0",
+]
+
+[tool.poetry.dependencies]
+python = "^3.9"
+django = "^4.2.0"
+requests-oauthlib = { version = "^1.3.0", extras = ["rsa"] }
+PYPROJ
+
+_dt_pep621="$(_deps_parse_pyproject \
+    "${DEPS_WORK}/proj-pypi-toml/pyproject.toml" 2>/dev/null)"
+
+# Unit: PEP 621 dep extracted
+printf '%s\n' "$_dt_pep621" | grep -qF "requests|>=2.28.0" \
+    && ok  "pyproject parser (PEP 621): requests extracted" \
+    || bad "pyproject parser (PEP 621): requests extracted" "output: $_dt_pep621"
+
+# Unit: PEP 621 name lowercased (Click → click)
+printf '%s\n' "$_dt_pep621" | grep -q "^click|" \
+    && ok  "pyproject parser (PEP 621): Click lowercased to click" \
+    || bad "pyproject parser (PEP 621): Click lowercased" "output: $_dt_pep621"
+
+# Unit: Poetry dep extracted; python key is skipped
+printf '%s\n' "$_dt_pep621" | grep -q "^django|" \
+    && ok  "pyproject parser (Poetry): django extracted" \
+    || bad "pyproject parser (Poetry): django extracted" "output: $_dt_pep621"
+
+printf '%s\n' "$_dt_pep621" | grep -q "^python|" \
+    && bad "pyproject parser (Poetry): python constraint must be skipped" "found in output" \
+    || ok  "pyproject parser (Poetry): python constraint skipped"
+
+# Unit: Poetry inline-table dep with extras (requests-oauthlib)
+printf '%s\n' "$_dt_pep621" | grep -q "^requests-oauthlib|" \
+    && ok  "pyproject parser (Poetry): inline-table dep with extras extracted" \
+    || bad "pyproject parser (Poetry): inline-table dep with extras" "output: $_dt_pep621"
+
+# Integration: click ok (8.1.0 == 8.1.0), django major-behind (^4.2.0 < 5.0.0)
+cat > "${DEPS_WORK}/registries-pypi-toml.json" << 'PYPITOMLJSON'
+{
+  "pypi": {
+    "manifests": ["pyproject.toml"],
+    "url": "https://pypi.org/pypi/{package}/json",
+    "latest_jq": ".info.version",
+    "published_jq": ".urls[0].upload_time_iso_8601"
+  }
+}
+PYPITOMLJSON
+
+cat > "${DEPS_WORK}/fetch-pypi-toml.sh" << 'FETCHPYPITOML'
+#!/usr/bin/env bash
+case "$1" in
+    *pypi.org*requests-oauthlib*)
+        printf '{"info":{"version":"1.3.1"},"urls":[{"upload_time_iso_8601":"2023-01-01T00:00:00.000000Z"}]}'
+        ;;
+    *pypi.org*requests*)
+        printf '{"info":{"version":"2.31.0"},"urls":[{"upload_time_iso_8601":"2023-05-22T00:00:00.000000Z"}]}'
+        ;;
+    *pypi.org*click*)
+        printf '{"info":{"version":"8.1.0"},"urls":[{"upload_time_iso_8601":"2023-12-01T00:00:00.000000Z"}]}'
+        ;;
+    *pypi.org*django*)
+        printf '{"info":{"version":"5.0.0"},"urls":[{"upload_time_iso_8601":"2023-12-01T00:00:00.000000Z"}]}'
+        ;;
+    *)  exit 1 ;;
+esac
+FETCHPYPITOML
+chmod +x "${DEPS_WORK}/fetch-pypi-toml.sh"
+
+_dt_toml_json="$(
+    SLOPGUARD_REGISTRIES_JSON="${DEPS_WORK}/registries-pypi-toml.json"
+    SLOPGUARD_FETCH_CMD="${DEPS_WORK}/fetch-pypi-toml.sh"
+    export CLAUDE_PLUGIN_OPTION_ALLOW_NETWORK=true
+    export CLAUDE_PLUGIN_OPTION_DEPENDENCY_FRESHNESS=warn
+    deps_check_main --json "${DEPS_WORK}/proj-pypi-toml" 2>/dev/null
+)"
+
+_dt_click_toml_v="$(printf '%s' "$_dt_toml_json" | \
+    jq -r '.[] | select(.package == "click") | .verdict' 2>/dev/null)"
+[ "$_dt_click_toml_v" = "ok" ] \
+    && ok  "pypi e2e (toml): click 8.1.0 == 8.1.0 → ok" \
+    || bad "pypi e2e (toml): click ok" "got: ${_dt_click_toml_v}"
+
+_dt_django_v="$(printf '%s' "$_dt_toml_json" | \
+    jq -r '.[] | select(.package == "django") | .verdict' 2>/dev/null)"
+[ "$_dt_django_v" = "major-behind" ] \
+    && ok  "pypi e2e (toml): django 4.2.0 < 5.0.0 → major-behind" \
+    || bad "pypi e2e (toml): django major-behind" "got: ${_dt_django_v}"
+
+# =========================================================================== #
+# 12. Maven pom.xml parser — offline
+# =========================================================================== #
+
+mkdir -p "${DEPS_WORK}/proj-maven"
+cat > "${DEPS_WORK}/proj-maven/pom.xml" << 'POM'
+<project>
+  <dependencies>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter</artifactId>
+      <version>3.1.0</version>
+    </dependency>
+    <dependency>
+      <groupId>junit</groupId>
+      <artifactId>junit</artifactId>
+      <version>${junit.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.example</groupId>
+      <artifactId>mylib</artifactId>
+      <version>2.0.0</version>
+    </dependency>
+  </dependencies>
+</project>
+POM
+
+_dt_pom="$(_deps_parse_pom "${DEPS_WORK}/proj-maven/pom.xml" 2>/dev/null)"
+
+# Unit: groupId:artifactId composite key
+printf '%s\n' "$_dt_pom" | grep -qF "g:org.springframework.boot+AND+a:spring-boot-starter|3.1.0" \
+    && ok  "pom parser: groupId+artifactId composite key extracted" \
+    || bad "pom parser: composite key extracted" "output: $_dt_pom"
+
+# Unit: second non-property dep extracted
+printf '%s\n' "$_dt_pom" | grep -qF "g:com.example+AND+a:mylib|2.0.0" \
+    && ok  "pom parser: second dep extracted" \
+    || bad "pom parser: second dep extracted" "output: $_dt_pom"
+
+# Unit: property-ref version is counted and noted on stderr (not in stdout)
+printf '%s\n' "$_dt_pom" | grep -q "junit" \
+    && bad "pom parser: property-ref dep must not appear in stdout" "found in output" \
+    || ok  "pom parser: property-ref version not in stdout"
+
+_dt_pom_skip="$(_deps_parse_pom "${DEPS_WORK}/proj-maven/pom.xml" 2>&1 >/dev/null)"
+printf '%s' "$_dt_pom_skip" | grep -q "note:" \
+    && ok  "pom parser: property-ref skip note emitted to stderr" \
+    || bad "pom parser: skip note emitted" "stderr: $_dt_pom_skip"
+
+# Integration: spring-boot-starter minor-behind (3.1.0 < 3.2.0), mylib ok (2.0.0 == 2.0.0)
+cat > "${DEPS_WORK}/registries-maven.json" << 'MAVENJSON'
+{
+  "maven": {
+    "manifests": ["pom.xml"],
+    "url": "https://search.maven.org/solrsearch/select?q={package}&rows=1&wt=json",
+    "latest_jq": ".response.docs[0].latestVersion",
+    "published_jq": ".response.docs[0].timestamp / 1000 | todate"
+  }
+}
+MAVENJSON
+
+cat > "${DEPS_WORK}/fetch-maven.sh" << 'FETCHMAVEN'
+#!/usr/bin/env bash
+case "$1" in
+    *spring-boot-starter*)
+        printf '{"response":{"docs":[{"latestVersion":"3.2.0","timestamp":1703174400000}]}}'
+        ;;
+    *mylib*)
+        printf '{"response":{"docs":[{"latestVersion":"2.0.0","timestamp":1700000000000}]}}'
+        ;;
+    *)  exit 1 ;;
+esac
+FETCHMAVEN
+chmod +x "${DEPS_WORK}/fetch-maven.sh"
+
+_dt_maven_json="$(
+    SLOPGUARD_REGISTRIES_JSON="${DEPS_WORK}/registries-maven.json"
+    SLOPGUARD_FETCH_CMD="${DEPS_WORK}/fetch-maven.sh"
+    export CLAUDE_PLUGIN_OPTION_ALLOW_NETWORK=true
+    export CLAUDE_PLUGIN_OPTION_DEPENDENCY_FRESHNESS=warn
+    deps_check_main --json "${DEPS_WORK}/proj-maven" 2>/dev/null
+)"
+
+_dt_sbs_v="$(printf '%s' "$_dt_maven_json" | \
+    jq -r '.[] | select(.package | contains("spring-boot-starter")) | .verdict' 2>/dev/null)"
+[ "$_dt_sbs_v" = "minor-behind" ] \
+    && ok  "maven e2e: spring-boot-starter 3.1.0 < 3.2.0 → minor-behind" \
+    || bad "maven e2e: spring-boot-starter minor-behind" "got: ${_dt_sbs_v}"
+
+_dt_mylib_v="$(printf '%s' "$_dt_maven_json" | \
+    jq -r '.[] | select(.package | contains("mylib")) | .verdict' 2>/dev/null)"
+[ "$_dt_mylib_v" = "ok" ] \
+    && ok  "maven e2e: mylib 2.0.0 == 2.0.0 → ok" \
+    || bad "maven e2e: mylib ok" "got: ${_dt_mylib_v}"
 
 # =========================================================================== #
 # Standalone summary

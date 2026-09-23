@@ -21,7 +21,9 @@ deps_fetch() {
     if [ -n "${SLOPGUARD_FETCH_CMD:-}" ]; then
         $SLOPGUARD_FETCH_CMD "$1"
     else
-        curl -fsSL --max-time 5 "$1"
+        curl -fsSL --max-time 5 \
+            -H 'User-Agent: slopguard/0.1.0 (+https://github.com/emgiezet/aisdlc)' \
+            "$1"
     fi
 }
 
@@ -256,16 +258,262 @@ _deps_parse_csproj() {
     done <<< "$out"
 }
 
+# _deps_parse_cargo <Cargo.toml>
+# Handles [dependencies], [dev-dependencies], [build-dependencies],
+# [workspace.dependencies] and target-specific deps sections.
+# Simple "version" form and single-line { version = "x" } inline tables.
+# Skips workspace, path, git, and multi-line entries; emits counted note to stderr.
+_deps_parse_cargo() {
+    local f="$1" in_deps=0 skip=0 line name ver
+    while IFS= read -r line; do
+        # Section header?
+        case "$line" in
+            '['*)
+                case "$line" in
+                    '[dependencies]'|'[dev-dependencies]'|\
+                    '[build-dependencies]'|'[workspace.dependencies]')
+                        in_deps=1 ;;
+                    *'.dependencies]'|*'.dev-dependencies]'|*'.build-dependencies]')
+                        in_deps=1 ;;
+                    *)
+                        in_deps=0 ;;
+                esac
+                continue
+                ;;
+        esac
+        [ "$in_deps" -eq 0 ] && continue
+        # Strip trailing inline comment (# never appears inside version strings)
+        line="${line%%#*}"
+        line="$(printf '%s' "$line" | sed 's/[[:space:]]*$//')"
+        [ -z "$line" ] && continue
+        # Package name: identifier before the first =
+        name="$(printf '%s' "$line" | sed -nE 's/^([A-Za-z0-9_-]+)[[:space:]]*=.*/\1/p')"
+        [ -z "$name" ] && continue
+        # Simple string form: name = "version"
+        ver="$(printf '%s' "$line" | sed -nE 's/^[A-Za-z0-9_-]+[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p')"
+        if [ -z "$ver" ]; then
+            # Single-line inline table: name = { ... version = "x" ... }
+            case "$line" in
+                *'{'*'}'*)
+                    ver="$(printf '%s' "$line" | \
+                        sed -nE 's/.*version[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p')" ;;
+            esac
+        fi
+        if [ -n "$ver" ]; then
+            printf '%s|%s\n' "$name" "$ver"
+        else
+            skip=$(( skip + 1 ))
+        fi
+    done < "$f"
+    if [ "$skip" -gt 0 ]; then
+        printf 'note: %s: %d entries skipped (workspace, path, git, or multi-line)\n' \
+            "$(basename "$f")" "$skip" >&2
+    fi
+}
+
+# _deps_parse_requirements <requirements*.txt>
+# Parses pip requirements files: one package per line, optional version spec.
+# Skips -r/-c options, VCS/URL lines, and environment markers (stripped, not skipped).
+# Names are normalised per PEP 503 (lowercase, [-_.]+ → -).
+_deps_parse_requirements() {
+    local f="$1" skip=0 line name ver
+    while IFS= read -r line; do
+        # Strip inline comment and surrounding whitespace
+        line="$(printf '%s' "$line" | sed 's/#.*//;s/^[[:space:]]*//;s/[[:space:]]*$//')"
+        [ -z "$line" ] && continue
+        # Skip pip options and VCS/URL entries
+        case "$line" in -*|*'://'*) continue ;; esac
+        # Strip environment markers (text after the first ;)
+        line="${line%%;*}"
+        line="$(printf '%s' "$line" | sed 's/[[:space:]]*$//')"
+        [ -z "$line" ] && continue
+        # Package name: letters/digits/-/_ up to first extras bracket or operator
+        name="$(printf '%s' "$line" | \
+            sed -nE 's/^([A-Za-z0-9][A-Za-z0-9._-]*)(\[[^]]*\])?([><=!~@].+)?$/\1/p')"
+        if [ -z "$name" ]; then skip=$(( skip + 1 )); continue; fi
+        # PEP 503: lowercase, collapse [-_.]+ to single -
+        name="$(printf '%s' "$name" | tr '[:upper:]' '[:lower:]' | \
+            sed 's/[-_.]\{1,\}/-/g')"
+        # First version constraint before the first comma (may be empty → *)
+        ver="$(printf '%s' "$line" | \
+            sed -nE 's/^[A-Za-z0-9][A-Za-z0-9._-]*(\[[^]]*\])?([><=!~][^,;]*).*$/\2/p')"
+        printf '%s|%s\n' "$name" "${ver:-*}"
+    done < "$f"
+    if [ "$skip" -gt 0 ]; then
+        printf 'note: %s: %d entries skipped (unparseable)\n' \
+            "$(basename "$f")" "$skip" >&2
+    fi
+}
+
+# _deps_parse_pyproject <pyproject.toml>
+# Parses [project] dependencies (PEP 621) and [tool.poetry.dependencies] sections.
+# Skips entries that require a real TOML parser (multi-line arrays with comments,
+# TOML inline tables without a version key, etc.) with a counted note to stderr.
+# Names are normalised per PEP 503.
+# Note: requires gawk (GNU awk) for the awk functions used here.
+_deps_parse_pyproject() {
+    local f="$1" out
+    out="$(awk '
+        function pep503(s,   t) {
+            t = tolower(s); gsub(/[-_.]+/, "-", t); return t
+        }
+        function emit_pep508(entry,   idx, name, ver) {
+            # Strip environment marker
+            idx = index(entry, ";")
+            if (idx > 0) entry = substr(entry, 1, idx-1)
+            gsub(/[[:space:]]+$/, "", entry)
+            # Remove extras [...]
+            gsub(/\[[^]]*\]/, "", entry)
+            gsub(/[[:space:]]/, "", entry)
+            # Separate name from version operator
+            if (match(entry, /[><=!~]/)) {
+                name = substr(entry, 1, RSTART-1)
+                ver  = substr(entry, RSTART)
+            } else {
+                name = entry; ver = "*"
+            }
+            name = pep503(name)
+            if (name == "") { skip++; return }
+            # First constraint only (before comma)
+            idx = index(ver, ","); if (idx > 0) ver = substr(ver, 1, idx-1)
+            print name "|" ver
+        }
+        BEGIN { sec=""; in_arr=0; skip=0 }
+        /^\[/ {
+            if ($0 == "[project]") sec="project"
+            else if ($0 == "[tool.poetry.dependencies]") sec="poetry"
+            else if ($0 ~ /^\[tool\.poetry\.group\.[A-Za-z0-9._-]+\.dependencies\]$/) sec="poetry"
+            else sec=""
+            in_arr=0; next
+        }
+        sec=="project" && /^dependencies[[:space:]]*=/ { in_arr=1; next }
+        in_arr && /^\]/ { in_arr=0; next }
+        in_arr {
+            line=$0
+            sub(/[[:space:]]*#.*$/, "", line)
+            gsub(/^[[:space:]]+|[[:space:]]+$/, "", line)
+            if (line == "" || line == ",") next
+            if (!match(line, /"[^"]+"/)) { skip++; next }
+            emit_pep508(substr(line, RSTART+1, RLENGTH-2))
+        }
+        sec=="poetry" {
+            line=$0
+            gsub(/^[[:space:]]+|[[:space:]]+$/, "", line)
+            if (line == "" || substr(line,1,1) == "#") next
+            if (!match(line, /^[A-Za-z0-9][A-Za-z0-9._-]*/)) next
+            name = pep503(substr(line, RSTART, RLENGTH))
+            if (name == "python") next
+            rest = substr(line, RSTART+RLENGTH)
+            gsub(/^[[:space:]]*=[[:space:]]*/, "", rest)
+            # Simple string: "version"
+            if (match(rest, /^"[^"]+"/)) {
+                ver = substr(rest, RSTART+1, RLENGTH-2)
+            } else if (match(rest, /\{[^}]*\}/)) {
+                tbl = substr(rest, RSTART, RLENGTH)
+                if (match(tbl, /version[[:space:]]*=[[:space:]]*"[^"]+"/)) {
+                    vs = substr(tbl, RSTART, RLENGTH)
+                    sub(/version[[:space:]]*=[[:space:]]*"/, "", vs)
+                    sub(/".*/, "", vs)
+                    ver = vs
+                } else { next }
+            } else { next }
+            idx = index(ver, ","); if (idx > 0) ver = substr(ver, 1, idx-1)
+            print name "|" ver
+        }
+        END {
+            if (skip > 0)
+                printf "note: pyproject.toml: %d entries skipped (unparseable format)\n",
+                    skip > "/dev/stderr"
+        }
+    ' "$f")"
+    [ -n "$out" ] && printf '%s\n' "$out"
+}
+
+# _deps_parse_pypi <manifest>
+# Dispatcher for Python ecosystem manifests.
+# Handled: pyproject.toml (PEP 621 + Poetry), requirements*.txt.
+# Skipped with a note: setup.py, setup.cfg (require a Python interpreter to parse).
+_deps_parse_pypi() {
+    local f="$1" base
+    base="$(basename "$f")"
+    case "$base" in
+        pyproject.toml)
+            _deps_parse_pyproject "$f" ;;
+        requirements*.txt)
+            _deps_parse_requirements "$f" ;;
+        setup.py|setup.cfg)
+            printf 'note: %s: skipped (requires a Python interpreter to parse)\n' \
+                "$base" >&2 ;;
+    esac
+}
+
+# _deps_parse_pom <pom.xml>
+# Awk state machine over multi-line <dependency> blocks in Maven pom.xml.
+# Registry key format: "g:<groupId>+AND+a:<artifactId>" (Maven Central Solr syntax).
+# Skips entries whose <version> is a property reference (${...}), and entries
+# with no <version> element (BOM-managed), with a counted note to stderr.
+_deps_parse_pom() {
+    local f="$1" out
+    out="$(awk '
+        BEGIN { in_dep=0; gid=""; aid=""; ver=""; skip=0 }
+        /<dependency>/ {
+            if ($0 !~ /<\/dependency>/) {
+                in_dep=1; gid=""; aid=""; ver=""
+            }
+            next
+        }
+        in_dep && /<\/dependency>/ {
+            in_dep=0
+            if (gid != "" && aid != "") {
+                if (ver ~ /\$\{/) {
+                    skip++
+                } else if (ver != "") {
+                    print "g:" gid "+AND+a:" aid "|" ver
+                }
+            }
+            gid=""; aid=""; ver=""; next
+        }
+        in_dep {
+            line=$0
+            if (match(line, /<groupId>[^<]+<\/groupId>/)) {
+                tmp=substr(line, RSTART, RLENGTH)
+                sub(/<groupId>/, "", tmp); sub(/<\/groupId>.*/, "", tmp)
+                gsub(/^[[:space:]]+|[[:space:]]+$/, "", tmp); gid=tmp
+            }
+            if (match(line, /<artifactId>[^<]+<\/artifactId>/)) {
+                tmp=substr(line, RSTART, RLENGTH)
+                sub(/<artifactId>/, "", tmp); sub(/<\/artifactId>.*/, "", tmp)
+                gsub(/^[[:space:]]+|[[:space:]]+$/, "", tmp); aid=tmp
+            }
+            if (match(line, /<version>[^<]+<\/version>/)) {
+                tmp=substr(line, RSTART, RLENGTH)
+                sub(/<version>/, "", tmp); sub(/<\/version>.*/, "", tmp)
+                gsub(/^[[:space:]]+|[[:space:]]+$/, "", tmp); ver=tmp
+            }
+        }
+        END {
+            if (skip > 0)
+                printf "note: pom.xml: %d entries skipped (property reference ${...})\n",
+                    skip > "/dev/stderr"
+        }
+    ' "$f")"
+    [ -n "$out" ] && printf '%s\n' "$out"
+}
+
+
 # _deps_parse_manifest <ecosystem> <file>
 # Dispatches to the correct parser.  Returns 1 for unsupported ecosystems.
 _deps_parse_manifest() {
     local eco="$1" f="$2"
     case "$eco" in
-        npm)       _deps_parse_npm       "$f" ;;
-        packagist) _deps_parse_packagist "$f" ;;
-        go)        _deps_parse_go        "$f" ;;
-        rubygems)  _deps_parse_gemfile   "$f" ;;
-        nuget)     _deps_parse_csproj    "$f" ;;
+        npm)       _deps_parse_npm          "$f" ;;
+        packagist) _deps_parse_packagist    "$f" ;;
+        go)        _deps_parse_go           "$f" ;;
+        rubygems)  _deps_parse_gemfile      "$f" ;;
+        nuget)     _deps_parse_csproj       "$f" ;;
+        crates)    _deps_parse_cargo        "$f" ;;
+        pypi)      _deps_parse_pypi         "$f" ;;
+        maven)     _deps_parse_pom          "$f" ;;
         *)         return 1 ;;
     esac
 }
@@ -344,21 +592,6 @@ deps_check_main() {
             done
         done <<< "$manifests_json"
         [ "$has_manifest" -eq 0 ] && continue
-
-        # Skip ecosystems whose manifests cannot be safely parsed in bash.
-        case "$eco" in
-            pypi)
-                [ "$do_json" -eq 0 ] && \
-                    printf 'skipped: %s (TOML format requires a dedicated parser)\n' "$eco"
-                continue
-                ;;
-            maven)
-                [ "$do_json" -eq 0 ] && \
-                    printf 'skipped: %s (multi-line XML and compound artifact key require a dedicated parser)\n' "$eco"
-                continue
-                ;;
-        esac
-
         # Fetch registry config for this ecosystem.
         local url_pat latest_jq published_jq
         url_pat="$(jq -r --arg e "$eco" '.[$e].url'          "$reg_file" 2>/dev/null)"
@@ -366,13 +599,18 @@ deps_check_main() {
         published_jq="$(jq -r --arg e "$eco" '.[$e].published_jq' "$reg_file" 2>/dev/null)"
 
         # Parse all manifests for this ecosystem into "pkg|version" pairs.
+        # In human-readable mode parser stderr is not suppressed so skip notes are visible.
         local all_deps=""
         while IFS= read -r mpat; do
             [ -z "$mpat" ] && continue
             for f in "$root"/$mpat; do
                 [ -f "$f" ] || continue
                 local parsed
-                parsed="$(_deps_parse_manifest "$eco" "$f" 2>/dev/null)" || continue
+                if [ "$do_json" -eq 1 ]; then
+                    parsed="$(_deps_parse_manifest "$eco" "$f" 2>/dev/null)" || continue
+                else
+                    parsed="$(_deps_parse_manifest "$eco" "$f")" || continue
+                fi
                 [ -n "$parsed" ] && all_deps="${all_deps}${parsed}"$'\n'
             done
         done <<< "$manifests_json"
