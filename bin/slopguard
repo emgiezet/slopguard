@@ -89,6 +89,38 @@ cmd_note_docs() {
         exit 0
     fi
     docs_note "$session_id" "${agent_id:-}" "$library"
+    # Record cross-session memory when the library matches a project framework version.
+    # Silent no-op on any failure: missing profile, no framework match, jq error.
+    local _ndd_profile; _ndd_profile="$(state_dir "$session_id" "${agent_id:-}")/profile.json"
+    if [ -f "$_ndd_profile" ]; then
+        local _ndd_fwv; _ndd_fwv="$(jq -r '.framework_versions // empty' \
+            "$_ndd_profile" 2>/dev/null || true)"
+        if [ -n "$_ndd_fwv" ]; then
+            local _ndd_stacks; _ndd_stacks="${SLOPGUARD_STACKS_JSON:-${CLAUDE_PLUGIN_ROOT}/rules/stacks.json}"
+            local _ndd_needle; _ndd_needle="$(printf '%s' "$library" | tr '[:upper:]' '[:lower:]')"
+            local _ndd_pairs; _ndd_pairs="$(jq -r \
+                --argjson fwv "$_ndd_fwv" \
+                'to_entries
+                 | map(select(.value.context7 != null and ($fwv[.key] != null)))
+                 | map("\(.value.context7)|\($fwv[.key])")
+                 | .[]' \
+                "$_ndd_stacks" 2>/dev/null || true)"
+            local _ndd_pair _ndd_query _ndd_ver _ndd_hay _ndd_hit
+            while IFS= read -r _ndd_pair; do
+                [ -n "$_ndd_pair" ] || continue
+                _ndd_query="${_ndd_pair%%|*}"
+                _ndd_ver="${_ndd_pair##*|}"
+                _ndd_hay="$(printf '%s' "$_ndd_query" | tr '[:upper:]' '[:lower:]')"
+                _ndd_hit=0
+                case "$_ndd_hay" in *"$_ndd_needle"*) _ndd_hit=1 ;; esac
+                [ "$_ndd_hit" -eq 0 ] && case "$_ndd_needle" in *"$_ndd_hay"*) _ndd_hit=1 ;; esac
+                if [ "$_ndd_hit" -eq 1 ]; then
+                    docs_remember "$_ndd_query" "$_ndd_ver" 2>/dev/null || true
+                    break
+                fi
+            done <<< "$_ndd_pairs"
+        fi
+    fi
     exit 0
 }
 

@@ -194,6 +194,69 @@ if [ -f "$_e2e_dl" ]; then
 fi
 
 # --------------------------------------------------------------------------- #
+# 12. note-docs → docs_remember wiring: end-to-end via slopguard binary
+# --------------------------------------------------------------------------- #
+_MEM_STACKS="${DOCS_TEST_WORK}/mem-stacks.json"
+printf '{"laravel":{"tier":1,"globs":["**/*.php"],"context7":"laravel"}}\n' \
+    > "$_MEM_STACKS"
+
+_MEM_SID="docs-mem-sess"
+_MEM_AID="agent-mem"
+_MEM_SDIR="${CLAUDE_PLUGIN_DATA}/sessions/${_MEM_SID}/${_MEM_AID}"
+mkdir -p "${_MEM_SDIR}"
+printf '{"framework_versions":{"laravel":"v12.4.1"}}\n' > "${_MEM_SDIR}/profile.json"
+
+# Run note-docs with a library that matches laravel's context7 query.
+printf '%s' "$(jq -n \
+    --arg session_id "$_MEM_SID" \
+    --arg agent_id   "$_MEM_AID" \
+    '{session_id:$session_id,agent_id:$agent_id,
+      hook_event_name:"PreToolUse",tool_name:"mcp__context7__get-library-docs",
+      tool_input:{context7CompatibleLibraryID:"/laravel/laravel",topic:"routing",tokens:5000}}')" \
+    | CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" \
+      CLAUDE_PLUGIN_ROOT="${PLUGIN_ROOT}" \
+      SLOPGUARD_STACKS_JSON="$_MEM_STACKS" \
+      "${PLUGIN_ROOT}/bin/slopguard" note-docs
+
+_MEM_KEY="$(_docs_key "laravel" "v12.4.1")"
+_MEM_FILE="${CLAUDE_PLUGIN_DATA}/docs-seen/${_MEM_KEY}"
+[ -f "$_MEM_FILE" ] \
+    && ok  "note-docs→docs_remember: memory file created (${_MEM_KEY})" \
+    || bad "note-docs→docs_remember: memory file created" "missing: ${_MEM_FILE}"
+
+docs_recall "laravel" "v12.4.1" \
+    && ok  "note-docs→docs_recall: hit for same major.minor after note-docs" \
+    || bad "note-docs→docs_recall: hit" "file not found: ${_MEM_FILE}"
+
+# An unrelated library must not create a memory file.
+_UNREL_SID="docs-mem-unrel"
+_UNREL_SDIR="${CLAUDE_PLUGIN_DATA}/sessions/${_UNREL_SID}/${_MEM_AID}"
+mkdir -p "${_UNREL_SDIR}"
+printf '{"framework_versions":{"laravel":"v12.4.1"}}\n' > "${_UNREL_SDIR}/profile.json"
+
+printf '%s' "$(jq -n \
+    --arg session_id "$_UNREL_SID" \
+    --arg agent_id   "$_MEM_AID" \
+    '{session_id:$session_id,agent_id:$agent_id,
+      hook_event_name:"PreToolUse",tool_name:"mcp__context7__get-library-docs",
+      tool_input:{context7CompatibleLibraryID:"django",topic:"orm",tokens:5000}}')" \
+    | CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" \
+      CLAUDE_PLUGIN_ROOT="${PLUGIN_ROOT}" \
+      SLOPGUARD_STACKS_JSON="$_MEM_STACKS" \
+      "${PLUGIN_ROOT}/bin/slopguard" note-docs
+
+_UNREL_KEY="$(_docs_key "django" "v12.4.1")"
+_UNREL_FILE="${CLAUDE_PLUGIN_DATA}/docs-seen/${_UNREL_KEY}"
+[ ! -f "$_UNREL_FILE" ] \
+    && ok  "note-docs→docs_remember: unrelated library (django) writes no memory file" \
+    || bad "note-docs→docs_remember: unrelated library must not write memory" "found: ${_UNREL_FILE}"
+
+# Minor bump must miss.
+docs_recall "laravel" "v12.5.0" \
+    && bad "note-docs→docs_recall: minor bump should miss" "returned 0 (false hit)" \
+    || ok  "note-docs→docs_recall: miss after minor bump (v12.4 → v12.5)"
+
+# --------------------------------------------------------------------------- #
 # Standalone summary
 # --------------------------------------------------------------------------- #
 if [ "${_DOCS_STANDALONE:-0}" = "1" ]; then

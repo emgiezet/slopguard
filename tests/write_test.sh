@@ -2,6 +2,15 @@
 # write_test.sh — sourced by tests/run-tests; ok()/bad() are pre-defined.
 
 WRITE_HOOK="${PLUGIN_ROOT}/hooks/pre-write"
+# Provide CLAUDE_PLUGIN_DATA for standalone invocation; run-tests has state_test.sh
+# export it already.  Track ownership to clean up only what we created.
+_WRITE_OWN_DATA=false
+if [ -z "${CLAUDE_PLUGIN_DATA:-}" ]; then
+    export CLAUDE_PLUGIN_DATA="${TMPDIR:-/tmp}/slop-guard-write-test-$$"
+    mkdir -p "${CLAUDE_PLUGIN_DATA}/sessions"
+    _WRITE_OWN_DATA=true
+fi
+
 
 run_write_policy() {
     local tool="$1" file="$2" new_content="$3" old_content="$4" expected="$5" label="$6"
@@ -123,4 +132,71 @@ printf '%s' "${_fw_w_nodocs_ctx}" | grep -q 'blocker checks cover' \
     && ok  'pre-write: REQUIRE_DOCS_LOOKUP=false suppresses framework sentence while keeping blockers' \
     || bad 'pre-write: REQUIRE_DOCS_LOOKUP=false' "ctx=${_fw_w_nodocs_ctx}"
 
+
+# In-session suppression via docs_seen: agent noted lookup in same session.
+# Create the session dir, run note-docs WITHOUT profile.json (so docs_remember is
+# not triggered), THEN add profile.json so pre-write can find framework_versions.
+_fw_seen_sess="fw-seen-$$"
+_fw_seen_sdir="${_fw_w_data}/sessions/${_fw_seen_sess}"
+mkdir -p "${_fw_seen_sdir}"
+
+# docs_note for session; no profile.json → docs_remember skipped.
+jq -n --arg sid "${_fw_seen_sess}" \
+    '{session_id:$sid,hook_event_name:"PreToolUse",tool_name:"mcp__context7__get-library-docs",
+      tool_input:{context7CompatibleLibraryID:"laravel"}}' \
+    | CLAUDE_PLUGIN_DATA="${_fw_w_data}" \
+      CLAUDE_PLUGIN_ROOT="${PLUGIN_ROOT}" \
+      SLOPGUARD_STACKS_JSON="${_fw_w_data}/stacks.json" \
+      "${PLUGIN_ROOT}/bin/slopguard" note-docs
+
+# Now add profile.json so pre-write resolves the framework.
+printf '{"stacks":["php","laravel"],"stacks_source":"auto","stacks_warnings":[],"tools":[],"config_sources":{},"framework_versions":{"laravel":"v12.4.1"}}\n' \
+    > "${_fw_seen_sdir}/profile.json"
+
+_fw_seen_out="$(jq -n --arg sid "${_fw_seen_sess}" \
+    '{session_id:$sid,tool_name:"Write",tool_input:{file_path:"app/Repo.php",content:"<?php"}}' \
+    | CLAUDE_PLUGIN_DATA="${_fw_w_data}" SLOPGUARD_STACKS_JSON="${_fw_w_data}/stacks.json" \
+      "${WRITE_HOOK}")"
+_fw_seen_ctx="$(printf '%s' "${_fw_seen_out}" | jq -r '.hookSpecificOutput.additionalContext // empty')"
+printf '%s' "${_fw_seen_ctx}" | grep -q 'blocker checks cover' \
+    && ! printf '%s' "${_fw_seen_ctx}" | grep -q 'mcp__context7__resolve-library-id' \
+    && ok  'pre-write: in-session docs_seen suppresses framework sentence, blockers remain' \
+    || bad 'pre-write: in-session docs_seen suppression' "ctx=${_fw_seen_ctx}"
+
+# Cross-session suppression via docs_recall: memory written in a prior session.
+# Use a helper session with profile.json so note-docs triggers docs_remember.
+_fw_ci_sess="fw-cross-init-$$"
+_fw_ci_sdir="${_fw_w_data}/sessions/${_fw_ci_sess}"
+mkdir -p "${_fw_ci_sdir}"
+printf '{"stacks":["php","laravel"],"stacks_source":"auto","stacks_warnings":[],"tools":[],"config_sources":{},"framework_versions":{"laravel":"v12.4.1"}}\n' \
+    > "${_fw_ci_sdir}/profile.json"
+
+jq -n --arg sid "${_fw_ci_sess}" \
+    '{session_id:$sid,hook_event_name:"PreToolUse",tool_name:"mcp__context7__get-library-docs",
+      tool_input:{context7CompatibleLibraryID:"/laravel/laravel"}}' \
+    | CLAUDE_PLUGIN_DATA="${_fw_w_data}" \
+      CLAUDE_PLUGIN_ROOT="${PLUGIN_ROOT}" \
+      SLOPGUARD_STACKS_JSON="${_fw_w_data}/stacks.json" \
+      "${PLUGIN_ROOT}/bin/slopguard" note-docs
+
+# Fresh session: no prior note-docs; docs_recall hits from the memory above.
+_fw_recall_sess="fw-recall-$$"
+_fw_recall_sdir="${_fw_w_data}/sessions/${_fw_recall_sess}"
+mkdir -p "${_fw_recall_sdir}"
+printf '{"stacks":["php","laravel"],"stacks_source":"auto","stacks_warnings":[],"tools":[],"config_sources":{},"framework_versions":{"laravel":"v12.4.1"}}\n' \
+    > "${_fw_recall_sdir}/profile.json"
+
+_fw_recall_out="$(jq -n --arg sid "${_fw_recall_sess}" \
+    '{session_id:$sid,tool_name:"Write",tool_input:{file_path:"app/Svc.php",content:"<?php"}}' \
+    | CLAUDE_PLUGIN_DATA="${_fw_w_data}" SLOPGUARD_STACKS_JSON="${_fw_w_data}/stacks.json" \
+      "${WRITE_HOOK}")"
+_fw_recall_ctx="$(printf '%s' "${_fw_recall_out}" | jq -r '.hookSpecificOutput.additionalContext // empty')"
+printf '%s' "${_fw_recall_ctx}" | grep -q 'blocker checks cover' \
+    && ! printf '%s' "${_fw_recall_ctx}" | grep -q 'mcp__context7__resolve-library-id' \
+    && ok  'pre-write: cross-session docs_recall suppresses framework sentence, blockers remain' \
+    || bad 'pre-write: cross-session docs_recall suppression' "ctx=${_fw_recall_ctx}"
+
 rm -rf "${_fw_w_data}"
+if [ "$_WRITE_OWN_DATA" = true ]; then
+    rm -rf "${CLAUDE_PLUGIN_DATA}"
+fi

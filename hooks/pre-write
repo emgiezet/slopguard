@@ -13,6 +13,8 @@ PLUGIN_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 . "${PLUGIN_ROOT}/lib/secrets.sh"
 # shellcheck source=../lib/state.sh
 . "${PLUGIN_ROOT}/lib/state.sh"
+# shellcheck source=../lib/docs.sh
+. "${PLUGIN_ROOT}/lib/docs.sh"
 
 hook_input
 tool_name="$(hook_field .tool_name)"
@@ -187,7 +189,19 @@ if [ -n "$session_id" ] && [ -n "$language" ]; then
                 if [ -n "$_fw_match" ]; then
                     _fw_name="${_fw_match%%|*}"
                     _fw_ver="${_fw_match##*|}"
-                    _fw_sentence=" Project runs ${_fw_name} ${_fw_ver} — consult mcp__context7__resolve-library-id then get-library-docs for version-specific conventions before restructuring code."
+                    _fw_query="$(jq -r --arg k "$_fw_name" '.[$k].context7 // empty' \
+                        "$_stacks_file" 2>/dev/null || true)"
+                    _fw_suppress=0
+                    if [ -n "$_fw_query" ]; then
+                        if docs_seen "$session_id" "${agent_id:-}" "$_fw_query" 2>/dev/null; then
+                            _fw_suppress=1
+                        elif docs_recall "$_fw_query" "$_fw_ver" 2>/dev/null; then
+                            _fw_suppress=1
+                        fi
+                    fi
+                    if [ "$_fw_suppress" -eq 0 ]; then
+                        _fw_sentence=" Project runs ${_fw_name} ${_fw_ver} — consult mcp__context7__resolve-library-id then get-library-docs for version-specific conventions before restructuring code."
+                    fi
                 fi
             fi
         fi

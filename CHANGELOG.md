@@ -3,6 +3,17 @@
 All notable changes to Slop Guard will be documented in this file.
 
 ## Unreleased
+- `hooks/pre-write` + `bin/slopguard note-docs`: the Context7 memory is now wired end to end.
+  A lookup that matches a framework the project runs records `<context7-query>@<major.minor>`;
+  the first-edit instruction is suppressed when the agent already consulted the docs in this
+  session (`docs_seen`) or in an earlier one at the same minor (`docs_recall`). A minor bump
+  invalidates the record and the instruction returns. The blocker-checks sentence is never
+  suppressed.
+- `scripts/validate-configs`: a missing linter is no longer a validation failure. Default run
+  exits 0 with `N skipped (not validated — tools absent)`; `--strict` (used by CI via the
+  `CONFIG_STRICT` Makefile variable, which keys off `CI`) restores the old behaviour. Fixes
+  `make validate` being unpassable on any machine without all 11 linters — and, because
+  `validate` depends on `validate-slopguard`, silently skipping every `plugins/sdlc` check.
 - `rules/registries.json` (new): package-registry endpoints for dependency-freshness checks — one entry per ecosystem (`npm`, `packagist`, `pypi`, `crates`, `rubygems`, `nuget`, `go`, `maven`); each entry carries `manifests`, `url` (with `{package}` placeholder), `latest_jq` and `published_jq` expressions; ecosystems whose endpoints could not be verified live are omitted rather than guessed.
 - `rules/stacks.json`: new optional field `context7` on seven framework tags (`laravel`, `symfony`, `doctrine`, `react`, `vite`, `express`, `terraform`) — human-readable query for `mcp__context7__resolve-library-id`; never a hardcoded library id.
 - `lib/docs.sh` (new): `docs_note` / `docs_seen` (case-insensitive, substring-tolerant session-level deduplication into `docs-lookups.json`); `docs_remember` / `docs_recall` (cross-session memory at `${CLAUDE_PLUGIN_DATA}/docs-seen/<library>@<major.minor>`; minor bump invalidates the record).

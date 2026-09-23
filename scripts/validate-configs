@@ -7,11 +7,25 @@
 # Outcomes per tool:
 #   PASS — tool present and accepted the config.
 #   FAIL — tool present and rejected the config or named an unknown rule.
-#   SKIP — a required tool or prerequisite is absent. Any skip fails this gate.
+#   SKIP — tool absent on this machine; the config was not validated.
 #
-# Exits non-zero when a validation fails or is skipped.
-
+# Exit semantics:
+#   default   Exits 1 only when a FAIL occurred.  A SKIP means the linter is
+#             not installed on this machine — a fact about the machine, not about
+#             the config.  Skipped tools are reported but do not fail the gate.
+#   --strict  Exits 1 when any FAIL or SKIP is present.  Use in CI, where the
+#             full toolchain is installed and any gap means a config went untested.
+#
+# Unknown flags: exits 2 with a usage line.
 set -uo pipefail
+
+STRICT=0
+for _arg in "$@"; do
+    case "$_arg" in
+        --strict) STRICT=1 ;;
+        *) printf "usage: validate-configs [--strict]\n" >&2; exit 2 ;;
+    esac
+done
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PLUGIN_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
@@ -380,9 +394,16 @@ fi
 # Summary
 # ---------------------------------------------------------------------------
 
-printf "\n%d validated, %d skipped (not validated), %d failed\n" \
-    "${PASS}" "${SKIP}" "${FAIL}"
+_mode_label=""
+[ "${STRICT}" -eq 1 ] && _mode_label="  [strict mode]"
+printf "\n%d validated, %d skipped (not validated — tools absent), %d failed%s\n" \
+    "${PASS}" "${SKIP}" "${FAIL}" "${_mode_label}"
 
-if [ "${FAIL}" -gt 0 ] || [ "${SKIP}" -gt 0 ]; then
+if [ "${FAIL}" -gt 0 ]; then
+    exit 1
+fi
+
+if [ "${SKIP}" -gt 0 ] && [ "${STRICT}" -eq 1 ]; then
+    printf "strict mode: skipped tools count as failures\n"
     exit 1
 fi
