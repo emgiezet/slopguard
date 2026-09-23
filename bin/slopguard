@@ -51,6 +51,26 @@ ensure_jq() {
 # shellcheck source=../lib/finding.sh
 . "${CLAUDE_PLUGIN_ROOT}/lib/finding.sh"
 
+# Fallback: tool_config_mode is defined in lib/tools.sh (ConfigMode slice).
+# This stub fires only when that slice hasn't landed yet; the contract is identical.
+# Unknown CONFIG_SOURCE values → overlay (safe: a typo must not disable the guard).
+if ! declare -F tool_config_mode >/dev/null 2>&1; then
+    tool_config_mode() {
+        local _tcm_t="$1" _tcm_pd="${2:-${CLAUDE_PROJECT_DIR:-}}"
+        local _tcm_cp; _tcm_cp="$(tool_config_path "$_tcm_t" "$_tcm_pd")"
+        case "$(tool_config_source "$_tcm_cp")" in
+            project) printf 'project' ;;
+            *)
+                case "${CLAUDE_PLUGIN_OPTION_CONFIG_SOURCE:-overlay}" in
+                    full)         printf 'full' ;;
+                    project-only) printf 'skip' ;;
+                    *)            printf 'overlay' ;;
+                esac
+                ;;
+        esac
+    }
+fi
+
 # --------------------------------------------------------------------------- #
 # session-start
 # --------------------------------------------------------------------------- #
@@ -357,11 +377,12 @@ cmd_doctor() {
         fi
         local resolved; resolved="$(resolve_tool "$tool")"
         local config_label; config_label="$(tool_config_path "$tool")"
+        local config_mode_label; config_mode_label="$(tool_config_mode "$tool")"
         local fail_this="$refresh_failed"
 
         if [ -z "$resolved" ]; then
             fail_this=1
-            say "  ${tool}  source: missing  lockfile: ${expected_version}  [NOT FOUND]  config: ${config_label}"
+            say "  ${tool}  source: missing  lockfile: ${expected_version}  [NOT FOUND]  config: ${config_label}  mode: ${config_mode_label}"
             local path_bin doctor_bin
             doctor_bin="$(lock_bin "$tool")"
             if path_bin="$(command -v "$doctor_bin" 2>/dev/null)"; then
@@ -399,7 +420,7 @@ cmd_doctor() {
                 fail_this=1
             fi
 
-            say "  ${tool}  source: ${source_label}  version: ${version_label}  [${match_label}]  config: ${config_label}"
+            say "  ${tool}  source: ${source_label}  version: ${version_label}  [${match_label}]  config: ${config_label}  mode: ${config_mode_label}"
         fi
 
         if [ "$fail_this" -eq 1 ]; then
@@ -494,6 +515,98 @@ cmd_doctor() {
 }
 
 # --------------------------------------------------------------------------- #
+# adopt-config
+# --------------------------------------------------------------------------- #
+
+# _adopt_dest <tool> <project_dir>
+# Prints the primary project config path for <tool> — where adopt-config writes.
+# Mirrors the first candidate checked in tool_config_path for each tool.
+# Returns empty string for tools that have no single-file config.
+_adopt_dest() {
+    local _ad_tool="$1" _ad_dir="$2"
+    case "$_ad_tool" in
+        betterleaks)   printf '%s/.gitleaks.toml'    "$_ad_dir" ;;
+        checkov)       printf '%s/.checkov.yaml'      "$_ad_dir" ;;
+        eslint-stack)  printf '%s/eslint.config.mjs'  "$_ad_dir" ;;
+        golangci-lint) printf '%s/.golangci.yml'      "$_ad_dir" ;;
+        hadolint)      printf '%s/.hadolint.yaml'     "$_ad_dir" ;;
+        kube-linter)   printf '%s/.kube-linter.yaml'  "$_ad_dir" ;;
+        phpstan)       printf '%s/phpstan.neon'       "$_ad_dir" ;;
+        psalm)         printf '%s/psalm.xml'          "$_ad_dir" ;;
+        ruff)          printf '%s/ruff.toml'          "$_ad_dir" ;;
+        tflint)        printf '%s/.tflint.hcl'        "$_ad_dir" ;;
+        zizmor)        printf '%s/zizmor.yml'         "$_ad_dir" ;;
+        *)             printf '' ;;
+    esac
+}
+
+cmd_adopt_config() {
+    local project_dir="${CLAUDE_PROJECT_DIR:-.}"
+    local tool="${1:-}"
+
+    if [ -z "$tool" ]; then
+        # List tools without a project config, with the baseline each would copy.
+        local _ac_found=0
+        while IFS= read -r _ac_t; do
+            local _ac_path; _ac_path="$(tool_config_path "$_ac_t" "$project_dir")"
+            local _ac_src; _ac_src="$(tool_config_source "$_ac_path")"
+            [ "$_ac_src" = "project" ] && continue   # already owned by project
+            [ "$_ac_path" = "none" ] && continue     # jq, shellcheck — no config concept
+            [ -d "$_ac_path" ] && continue            # opengrep uses a rule directory
+            _ac_found=1
+            printf '  %-20s  %s\n' "$_ac_t" "$_ac_path"
+        done <<< "$(lock_tools)"
+        if [ "$_ac_found" -eq 0 ]; then
+            say "All tools have project configs — nothing to adopt."
+        else
+            say ""
+            say "Run: slopguard adopt-config <tool>  to copy a baseline into your project."
+        fi
+        return 0
+    fi
+
+    # Validate the tool name against the lockfile.
+    local _ac_known=0
+    while IFS= read -r _ac_t; do
+        [ "$_ac_t" = "$tool" ] && { _ac_known=1; break; }
+    done <<< "$(lock_tools)"
+    [ "$_ac_known" -eq 0 ] && die "unknown tool '${tool}' — try: slopguard adopt-config"
+
+    # Resolve existing config for this tool.
+    local cfg_path; cfg_path="$(tool_config_path "$tool" "$project_dir")"
+    local cfg_src; cfg_src="$(tool_config_source "$cfg_path")"
+
+    # Already has a project config — refuse.
+    if [ "$cfg_src" = "project" ]; then
+        die "project config already exists: ${cfg_path}"
+    fi
+
+    [ "$cfg_path" = "none" ] \
+        && die "tool '${tool}' has no config file (no-config tool — binary only)"
+
+    # opengrep uses a rule directory; can't adopt as a single file.
+    [ -d "$cfg_path" ] \
+        && die "tool '${tool}' uses a rule directory — copy ${cfg_path} into your project manually"
+
+    [ -f "$cfg_path" ] || die "baseline config not found: ${cfg_path}"
+
+    # Determine the primary destination in the project.
+    local dest; dest="$(_adopt_dest "$tool" "$project_dir")"
+    [ -n "$dest" ] || die "tool '${tool}' does not support adopt-config"
+
+    # Never overwrite — refuse with the filename so the user knows what to check.
+    if [ -f "$dest" ]; then
+        die "file already exists: ${dest}\n  Run: slopguard doctor  to confirm which config is active"
+    fi
+
+    cp "$cfg_path" "$dest" || die "failed to copy ${cfg_path} → ${dest}"
+
+    say "${dest}"
+    say "${tool}: this file is now the project's config and is write-protected from the agent (ask required to edit it)."
+}
+
+
+# --------------------------------------------------------------------------- #
 # help
 # --------------------------------------------------------------------------- #
 
@@ -503,6 +616,8 @@ slopguard ${VERSION} — anti-pattern detection and gate for agent-written code.
 
   slopguard doctor             report tool status (installs nothing)
   slopguard doctor --install   install or update pinned tools
+  slopguard adopt-config       list tools without a project config
+  slopguard adopt-config <t>   copy the baseline config for <t> into the project
   slopguard note-docs          record a Context7 lookup (reads hook JSON on stdin)
   slopguard deps-check         check dependency freshness against registries
   slopguard version            print version
@@ -538,7 +653,7 @@ cmd_stop_gate() {
 # --------------------------------------------------------------------------- #
 
 case "${1:-help}" in
-    session-start|pre-bash|pre-write|pre-read|post-write|doctor|note-docs|deps-check|stop-gate) ensure_jq ;;
+    session-start|pre-bash|pre-write|pre-read|post-write|doctor|note-docs|deps-check|stop-gate|adopt-config) ensure_jq ;;
 esac
 
 case "${1:-help}" in
@@ -549,6 +664,7 @@ case "${1:-help}" in
     post-write)        shift; cmd_post_write "$@" ;;
     stop-gate)         shift; cmd_stop_gate "$@" ;;
     doctor)            shift; cmd_doctor "$@" ;;
+    adopt-config)      shift; cmd_adopt_config "$@" ;;
     note-docs)         shift; cmd_note_docs "$@" ;;
     deps-check)        shift; cmd_deps_check "$@" ;;
     version|--version) say "slopguard ${VERSION}" ;;

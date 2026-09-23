@@ -50,6 +50,12 @@
           "description": "project-first | plugin-only | project-only",
           "default": "project-first"
         },
+        "config_source": {
+          "type": "string",
+          "title": "Config source mode",
+          "description": "overlay | full | project-only",
+          "default": "overlay"
+        },
         "require_docs_lookup": {
           "type": "boolean",
           "title": "Require Context7 documentation lookup",

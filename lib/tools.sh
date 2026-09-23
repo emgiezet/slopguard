@@ -302,6 +302,37 @@ tool_config_source() {
     esac
 }
 
+# tool_config_mode <tool> [project_dir]
+# Prints the effective run mode for this tool given the current project context:
+#   project  — a project config is present; run with it and report everything
+#   overlay  — no project config; run with baseline, report only security findings
+#   full     — no project config; run with baseline, report everything
+#   skip     — no project config; knob=project-only → do not run the tool
+#
+# Reads CLAUDE_PLUGIN_OPTION_CONFIG_SOURCE (overlay|full|project-only); defaults to
+# overlay.  An unrecognised value is treated as overlay so a config typo never
+# disables the guard.
+tool_config_mode() {
+    local tool="$1" project_dir="${2:-${CLAUDE_PROJECT_DIR:-}}"
+    local config_path source
+    config_path="$(tool_config_path "$tool" "$project_dir")"
+    source="$(tool_config_source "$config_path")"
+
+    # When a project config exists the tool runs with it and reports everything.
+    if [ "$source" = "project" ]; then
+        printf 'project'
+        return
+    fi
+
+    # No project config (baseline or none) — apply the knob.
+    local knob="${CLAUDE_PLUGIN_OPTION_CONFIG_SOURCE:-overlay}"
+    case "$knob" in
+        full)         printf 'full'    ;;
+        project-only) printf 'skip'    ;;
+        *)            printf 'overlay' ;;  # overlay and unrecognised values → overlay
+    esac
+}
+
 # tool_version_output <name> <binary_path>
 tool_version_output() {
     case "$1" in

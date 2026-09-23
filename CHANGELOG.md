@@ -3,6 +3,17 @@
 All notable changes to Slop Guard will be documented in this file.
 
 ## Unreleased
+- **Security overlay as default baseline fallback (`config_source`)** (2026-09-23)
+  - `plugin.json` (both manifests): `config_source` added to `userConfig` adjacent to `tool_source`; type string, default `"overlay"`, description `"overlay | full | project-only"`. Hook env: `CLAUDE_PLUGIN_OPTION_CONFIG_SOURCE`.
+  - `docs/slop-guard-spec.md` §2 Z1: third bullet rewritten — baseline configs now behave as a security overlay by default; `config_source` knob documented with all three values and the rationale (repositories that never adopted our style rules should not receive them; security is what the guard is installed for; unknown rules are not treated as security in overlay mode).
+  - `docs/slop-guard-spec.md` §4.2: `config_source` added to the manifest example; env-var list updated to include `CLAUDE_PLUGIN_OPTION_CONFIG_SOURCE`.
+  - `docs/slop-guard-spec.md` §6: heading and intro reframed — configs in `configs/baseline/` are examples, adopted via `slopguard adopt-config <tool>` or ignored; the security overlay applies until adoption; adopted configs are write-protected.
+  - `docs/slop-guard-spec.md` §9.1: config source table added as a sub-section — full interaction matrix of `tool_source` × `config_source` × project binary / config presence; `tool_config_mode` return values documented.
+  - `plugins/slop-guard/configs/baseline/README.md` (new): what the directory is (examples, not defaults), what happens if ignored (security overlay), how to adopt, write-protection after adoption, `config_source` knob table.
+  - `README.md`: short paragraph added to the Slop Guard section — with your own linter config the plugin reports everything; without one it reports only security findings; `slopguard adopt-config` command shown.
+  - `plugins/slop-guard/docs/decisions.md`: D29 added — security overlay as default; rejected alternative `project-only` (would silence SQL-injection in repos least likely to have a linter configured); rejected `full` as implicit previous behaviour (causes first-session style noise that prompts users to disable the guard).
+  - **Why `project-only` was rejected (D29).** Skipping a tool when no project config exists silences SQL-injection and secret-handling detections in exactly the repositories least likely to have a linter configured — the ones that need the guard most. The overlay is the least-surprise middle ground: security always, style only when the project has opted in.
+
 - **Etap 6 — Hardening and distribution (partial)** (2026-09-23)
   - `docs/slop-guard-spec.md`: §11.2 updated — eval cases exist as specifications; the 0.8 threshold is the target, not a measured result; maintainer command documented. §11.3 Etap 3–6: stage records added for what shipped and what did not; every unwired tool named as Etap 0 work.
   - `plugins/slop-guard/docs/decisions.md`: D25–D28 added (unwired tools policy; Stop gate cap; eval threshold status; Windows launcher deferred).

@@ -248,6 +248,26 @@ _dispatch_filter_emit() {
     # Performance/maintainability outside changed lines: silently filtered (Z2).
 }
 
+# _dispatch_config_filter_emit  config_mode  [all _dispatch_filter_emit args]
+# Applies the security overlay before calling _dispatch_filter_emit.
+#
+# In overlay mode a finding is emitted only when its mapped category is "security".
+# A rule with no mapping entry defaults to maintainability and is therefore dropped
+# in overlay mode — defaulting unknowns to security would reinstate exactly the
+# noise this feature removes.
+# In "project" or "full" mode every finding passes through unchanged.
+# "skip" is handled by each runner before calling this function and never reaches here.
+# shellcheck disable=SC2086  # intentional positional expansion via "$@"
+_dispatch_config_filter_emit() {
+    local _dcfe_mode="$1"; shift
+    # After shift: $1=session_id $2=agent_id $3=ap_id $4=tool $5=tool_rule
+    #              $6=category $7=severity $8=cwe_json …
+    if [ "$_dcfe_mode" = "overlay" ] && [ "${6}" != "security" ]; then
+        return 0
+    fi
+    _dispatch_filter_emit "$@"
+}
+
 # --------------------------------------------------------------------------- #
 # Tool-specific runners
 # --------------------------------------------------------------------------- #
@@ -268,6 +288,8 @@ _dispatch_run_ruff() {
     fi
 
     local config; config="$(tool_config_path ruff "$project_dir")"
+    local config_mode; config_mode="$(tool_config_mode ruff "$project_dir")"
+    [ "$config_mode" = "skip" ] && return 0
     local raw exit_code=0
     raw="$(timeout "$(_dispatch_timeout)" \
         "$tool_bin" check --config "$config" --output-format=json --no-fix --exit-zero \
@@ -296,13 +318,13 @@ _dispatch_run_ruff() {
         fi
         fix=""
 
-        _dispatch_filter_emit \
+        _dispatch_config_filter_emit "$config_mode" \
             "$session_id" "$agent_id" "$ap_id" "ruff" "$code" \
             "$category" "$severity" "$cwe_json" \
             "$file" "$row" "$end_row" "$msg" "$fix" "$snippet" \
             "$is_untracked" "$changed_ranges" "$findings_out"
     done <<< "$(printf '%s\n' "$raw" \
-        | jq -r '.[] | [.code, .message, (.row|tostring), (.end_row|tostring)] | @tsv' 2>/dev/null || true)"
+        | jq -r '.[] | [.code, .message, (.location.row|tostring), (.end_location.row // .location.row|tostring)] | @tsv' 2>/dev/null || true)"
 }
 
 # _dispatch_run_eslint_stack  file session_id agent_id project_dir
@@ -321,6 +343,8 @@ _dispatch_run_eslint_stack() {
     fi
 
     local config; config="$(tool_config_path eslint-stack "$project_dir")"
+    local config_mode; config_mode="$(tool_config_mode eslint-stack "$project_dir")"
+    [ "$config_mode" = "skip" ] && return 0
     local raw exit_code=0
     raw="$(timeout "$(_dispatch_timeout)" \
         "$tool_bin" --config "$config" --format json --no-warn-ignored \
@@ -347,7 +371,7 @@ _dispatch_run_eslint_stack() {
         fi
         fix=""
 
-        _dispatch_filter_emit \
+        _dispatch_config_filter_emit "$config_mode" \
             "$session_id" "$agent_id" "$ap_id" "eslint" "$rule_id" \
             "$category" "$severity" "$cwe_json" \
             "$file" "$line" "${endline:-$line}" "$msg" "$fix" "$snippet" \
@@ -372,6 +396,8 @@ _dispatch_run_hadolint() {
     fi
 
     local config; config="$(tool_config_path hadolint "$project_dir")"
+    local config_mode; config_mode="$(tool_config_mode hadolint "$project_dir")"
+    [ "$config_mode" = "skip" ] && return 0
     local raw exit_code=0
     raw="$(timeout "$(_dispatch_timeout)" \
         "$tool_bin" --config "$config" -f json "$file" 2>/dev/null)" || exit_code=$?
@@ -396,7 +422,7 @@ _dispatch_run_hadolint() {
         fi
         fix=""
 
-        _dispatch_filter_emit \
+        _dispatch_config_filter_emit "$config_mode" \
             "$session_id" "$agent_id" "$ap_id" "hadolint" "$code" \
             "$category" "$severity" "$cwe_json" \
             "$file" "$line" "$line" "$msg" "$fix" "$snippet" \
@@ -421,6 +447,8 @@ _dispatch_run_kube_linter() {
     fi
 
     local config; config="$(tool_config_path kube-linter "$project_dir")"
+    local config_mode; config_mode="$(tool_config_mode kube-linter "$project_dir")"
+    [ "$config_mode" = "skip" ] && return 0
     local raw exit_code=0
     raw="$(timeout "$(_dispatch_timeout)" \
         "$tool_bin" lint --config "$config" --format json "$file" 2>/dev/null)" || exit_code=$?
@@ -446,7 +474,7 @@ _dispatch_run_kube_linter() {
         fix=""
 
         # kube-linter has no line numbers in JSON output; use 0.
-        _dispatch_filter_emit \
+        _dispatch_config_filter_emit "$config_mode" \
             "$session_id" "$agent_id" "$ap_id" "kube-linter" "$check" \
             "$category" "$severity" "$cwe_json" \
             "$file" "0" "0" "$msg" "$fix" "$snippet" \
@@ -471,6 +499,8 @@ _dispatch_run_zizmor() {
     fi
 
     local config; config="$(tool_config_path zizmor "$project_dir")"
+    local config_mode; config_mode="$(tool_config_mode zizmor "$project_dir")"
+    [ "$config_mode" = "skip" ] && return 0
     local raw exit_code=0
     raw="$(timeout "$(_dispatch_timeout)" \
         "$tool_bin" --config "$config" --format json --offline \
@@ -496,7 +526,7 @@ _dispatch_run_zizmor() {
         fi
         fix=""
 
-        _dispatch_filter_emit \
+        _dispatch_config_filter_emit "$config_mode" \
             "$session_id" "$agent_id" "$ap_id" "zizmor" "$rule_id" \
             "$category" "$severity" "$cwe_json" \
             "$file" "$line" "$line" "$msg" "$fix" "$snippet" \
@@ -803,6 +833,8 @@ _dispatch_run_phpstan() {
     fi
 
     local config; config="$(tool_config_path phpstan "$project_dir")"
+    local config_mode; config_mode="$(tool_config_mode phpstan "$project_dir")"
+    [ "$config_mode" = "skip" ] && return 0
     # New/untracked files use --level=max per spec §6.1.
     local level_args=""
     [ "$is_untracked" -eq 1 ] && level_args="--level=max"
@@ -832,7 +864,7 @@ _dispatch_run_phpstan() {
             cwe_json='[]'
         fi
         fix=""
-        _dispatch_filter_emit \
+        _dispatch_config_filter_emit "$config_mode" \
             "$session_id" "$agent_id" "$ap_id" "phpstan" "$rule_id" \
             "$category" "$severity" "$cwe_json" \
             "$file" "$line" "$line" "$msg" "$fix" "$snippet" \
@@ -862,6 +894,8 @@ _dispatch_run_golangci_lint() {
     fi
 
     local config; config="$(tool_config_path golangci-lint "$project_dir")"
+    local config_mode; config_mode="$(tool_config_mode golangci-lint "$project_dir")"
+    [ "$config_mode" = "skip" ] && return 0
 
     # Compute the Go package path relative to project_dir.
     local file_dir; file_dir="$(dirname "$file")"
@@ -917,7 +951,7 @@ _dispatch_run_golangci_lint() {
             cwe_json='[]'
         fi
         fix=""
-        _dispatch_filter_emit \
+        _dispatch_config_filter_emit "$config_mode" \
             "$session_id" "$agent_id" "$ap_id" "golangci-lint" "$rule_id" \
             "$category" "$severity" "$cwe_json" \
             "$finding_file" "$line" "$line" "$msg" "$fix" "$snippet" \
@@ -952,6 +986,8 @@ _dispatch_run_eslint_typed() {
     fi
 
     local config; config="$(tool_config_path eslint-stack "$project_dir")"
+    local config_mode; config_mode="$(tool_config_mode eslint-stack "$project_dir")"
+    [ "$config_mode" = "skip" ] && return 0
     local raw exit_code=0
     raw="$(timeout "$(_dispatch_medium_timeout)" \
         env SLOPGUARD_TYPED_LINT=1 \
@@ -980,7 +1016,7 @@ _dispatch_run_eslint_typed() {
             cwe_json='[]'
         fi
         fix=""
-        _dispatch_filter_emit \
+        _dispatch_config_filter_emit "$config_mode" \
             "$session_id" "$agent_id" "$ap_id" "eslint-typed" "$rule_id" \
             "$category" "$severity" "$cwe_json" \
             "$file" "$line" "${endline:-$line}" "$msg" "$fix" "$snippet" \
@@ -1008,6 +1044,8 @@ _dispatch_run_tflint() {
     fi
 
     local config; config="$(tool_config_path tflint "$project_dir")"
+    local config_mode; config_mode="$(tool_config_mode tflint "$project_dir")"
+    [ "$config_mode" = "skip" ] && return 0
     local file_dir; file_dir="$(dirname "$file")"
 
     local raw exit_code=0
@@ -1035,7 +1073,7 @@ _dispatch_run_tflint() {
             cwe_json='[]'
         fi
         fix=""
-        _dispatch_filter_emit \
+        _dispatch_config_filter_emit "$config_mode" \
             "$session_id" "$agent_id" "$ap_id" "tflint" "$rule_id" \
             "$category" "$severity" "$cwe_json" \
             "$file" "$line" "$line" "$msg" "$fix" "$snippet" \
@@ -1063,6 +1101,8 @@ _dispatch_run_checkov() {
     fi
 
     local config; config="$(tool_config_path checkov "$project_dir")"
+    local config_mode; config_mode="$(tool_config_mode checkov "$project_dir")"
+    [ "$config_mode" = "skip" ] && return 0
     local raw exit_code=0
     raw="$(timeout "$(_dispatch_medium_timeout)" \
         "$tool_bin" --config-file "$config" -f "$file" 2>/dev/null)" || exit_code=$?
@@ -1086,7 +1126,7 @@ _dispatch_run_checkov() {
             cwe_json='[]'
         fi
         fix=""
-        _dispatch_filter_emit \
+        _dispatch_config_filter_emit "$config_mode" \
             "$session_id" "$agent_id" "$ap_id" "checkov" "$check_id" \
             "$category" "$severity" "$cwe_json" \
             "$file" "$line" "$line" "$check_name" "$fix" "$snippet" \
@@ -1118,6 +1158,8 @@ _dispatch_run_opengrep() {
     fi
 
     local rules_dir="${CLAUDE_PLUGIN_ROOT}/rules/opengrep"
+    local config_mode; config_mode="$(tool_config_mode opengrep "$project_dir")"
+    [ "$config_mode" = "skip" ] && return 0
     [ -d "$rules_dir" ] || return 0
 
     # Optional project-local rules from .slopguard/opengrep/ (ext.sh §7.8).
@@ -1156,7 +1198,7 @@ _dispatch_run_opengrep() {
             cwe_json='[]'
         fi
         fix=""
-        _dispatch_filter_emit \
+        _dispatch_config_filter_emit "$config_mode" \
             "$session_id" "$agent_id" "$ap_id" "opengrep" "$rule_id" \
             "$category" "$severity" "$cwe_json" \
             "$file" "$line" "$line" "$msg" "$fix" "$snippet" \

@@ -215,7 +215,7 @@ _dt_modify "$_dt_repo3" "app.py" 'query = "SELECT * FROM users WHERE id = %s" % 
 y = 2'
 
 # Stub ruff to report S608 at line 1.
-_dt_ruff_out='[{"code":"S608","message":"Possible SQL injection via string-based query construction","filename":"app.py","url":"","row":1,"col":1,"end_row":1,"end_col":50,"fix":null,"noqa_row":null}]'
+_dt_ruff_out='[{"code":"S608","message":"Possible SQL injection via string-based query construction","filename":"app.py","url":"","location":{"row":1,"column":1},"end_location":{"row":1,"column":50},"fix":null,"noqa_row":null}]'
 _dt_stub_tool "${_dt_repo3}/vendor/bin" "ruff" "$_dt_ruff_out"
 _dt_sess="dt-changed-line-$$"
 _dt_tmp="$(_dt_run_dispatch "$_dt_repo3" "${_dt_repo3}/app.py" "$_dt_sess")"
@@ -240,7 +240,7 @@ y = 2
 z = 99'
 
 # Stub ruff to report a maintainability finding at unchanged line 1.
-_dt_ruff_maint='[{"code":"T201","message":"print found","filename":"app.py","url":"","row":1,"col":1,"end_row":1,"end_col":10,"fix":null,"noqa_row":null}]'
+_dt_ruff_maint='[{"code":"T201","message":"print found","filename":"app.py","url":"","location":{"row":1,"column":1},"end_location":{"row":1,"column":10},"fix":null,"noqa_row":null}]'
 _dt_stub_tool "${_dt_repo4}/vendor/bin" "ruff" "$_dt_ruff_maint"
 _dt_sess4="dt-unchanged-$$"
 _dt_tmp4="$(_dt_run_dispatch "$_dt_repo4" "${_dt_repo4}/app.py" "$_dt_sess4")"
@@ -258,7 +258,7 @@ _dt_make_git_repo "$_dt_repo5"
 # File is untracked (not committed).
 printf 'query = "SELECT * FROM u WHERE id = %%s" %% uid\n' > "${_dt_repo5}/new.py"
 
-_dt_ruff_ut='[{"code":"S608","message":"SQL injection","filename":"new.py","url":"","row":1,"col":1,"end_row":1,"end_col":40,"fix":null,"noqa_row":null}]'
+_dt_ruff_ut='[{"code":"S608","message":"SQL injection","filename":"new.py","url":"","location":{"row":1,"column":1},"end_location":{"row":1,"column":40},"fix":null,"noqa_row":null}]'
 _dt_stub_tool "${_dt_repo5}/vendor/bin" "ruff" "$_dt_ruff_ut"
 _dt_sess5="dt-untracked-$$"
 _dt_tmp5="$(_dt_run_dispatch "$_dt_repo5" "${_dt_repo5}/new.py" "$_dt_sess5")"
@@ -362,7 +362,7 @@ _dt_make_git_repo "$_dt_repo9"
 _dt_commit "$_dt_repo9" "app.py" 'x = 1'
 _dt_modify "$_dt_repo9" "app.py" 'query = "SELECT * FROM t WHERE id = %s" % i'
 
-_dt_ruff_one='[{"code":"S608","message":"SQL injection","filename":"app.py","url":"","row":1,"col":1,"end_row":1,"end_col":40,"fix":null,"noqa_row":null}]'
+_dt_ruff_one='[{"code":"S608","message":"SQL injection","filename":"app.py","url":"","location":{"row":1,"column":1},"end_location":{"row":1,"column":40},"fix":null,"noqa_row":null}]'
 _dt_stub_tool "${_dt_repo9}/vendor/bin" "ruff" "$_dt_ruff_one"
 _dt_sess9="dt-dedup-$$"
 
@@ -441,7 +441,7 @@ _dt_make_git_repo "$_dt_e2e_repo"
 _dt_commit "$_dt_e2e_repo" "main.py" 'x = 1'
 _dt_modify "$_dt_e2e_repo" "main.py" 'query = cursor.execute("SELECT * FROM t WHERE id = %s" % uid)'
 
-_dt_ruff_e2e='[{"code":"S608","message":"Possible SQL injection via string-based query construction","filename":"main.py","url":"","row":1,"col":1,"end_row":1,"end_col":60,"fix":null,"noqa_row":null}]'
+_dt_ruff_e2e='[{"code":"S608","message":"Possible SQL injection via string-based query construction","filename":"main.py","url":"","location":{"row":1,"column":1},"end_location":{"row":1,"column":60},"fix":null,"noqa_row":null}]'
 _dt_stub_tool "${_dt_e2e_repo}/vendor/bin" "ruff" "$_dt_ruff_e2e"
 
 # Advisory run: uses its own session so dedup does NOT block the balanced run.

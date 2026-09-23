@@ -15,6 +15,25 @@ PLUGIN_ROOT="$(cd "${HOOKS_DIR}/.." && pwd)"
 . "${CLAUDE_PLUGIN_ROOT}/lib/state.sh"
 # shellcheck source=../lib/tools.sh
 . "${CLAUDE_PLUGIN_ROOT}/lib/tools.sh"
+# Fallback: tool_config_mode is defined in lib/tools.sh (ConfigMode slice).
+# This stub fires only when that slice hasn't landed yet; the contract is identical.
+# Unknown CONFIG_SOURCE values → overlay (safe: a typo must not disable the guard).
+if ! declare -F tool_config_mode >/dev/null 2>&1; then
+    tool_config_mode() {
+        local _tcm_t="$1" _tcm_pd="${2:-${CLAUDE_PROJECT_DIR:-}}"
+        local _tcm_cp; _tcm_cp="$(tool_config_path "$_tcm_t" "$_tcm_pd")"
+        case "$(tool_config_source "$_tcm_cp")" in
+            project) printf 'project' ;;
+            *)
+                case "${CLAUDE_PLUGIN_OPTION_CONFIG_SOURCE:-overlay}" in
+                    full)         printf 'full' ;;
+                    project-only) printf 'skip' ;;
+                    *)            printf 'overlay' ;;
+                esac
+                ;;
+        esac
+    }
+fi
 # shellcheck source=../lib/detect.sh
 . "${CLAUDE_PLUGIN_ROOT}/lib/detect.sh"
 # shellcheck source=../lib/config.sh
@@ -48,7 +67,7 @@ main() {
     fi
 
     local _sdir _tools_json tool resolved source version expected matches plugin_prefix
-    local config_path config_source
+    local config_path config_source config_mode
     local -a _missing_tools=()
     _sdir="$(state_dir "$SESSION_ID" "${AGENT_ID:-}")"
     _tools_json='[]'
@@ -60,6 +79,7 @@ main() {
         matches=false
         config_path="$(tool_config_path "$tool" "$_d")"
         config_source="$(tool_config_source "$config_path")"
+        config_mode="$(tool_config_mode "$tool" "$_d")"
         if [ -n "$resolved" ]; then
             plugin_prefix="${CLAUDE_PLUGIN_DATA}/tools/"
             case "$resolved" in
@@ -76,10 +96,12 @@ main() {
             --arg tool "$tool" --arg source "$source" --arg path "$resolved" \
             --arg version "$version" --arg expected "$expected" \
             --arg config_path "$config_path" --arg config_source "$config_source" \
+            --arg config_mode "$config_mode" \
             --argjson matches "$matches" \
             '. + [{name:$tool,source:$source,path:$path,version:$version,
                     expected_version:$expected,version_matches:$matches,
-                    config_path:$config_path,config_source:$config_source}]' \
+                    config_path:$config_path,config_source:$config_source,
+                    config_mode:$config_mode}]' \
             <<< "$_tools_json")"
     done < <(lock_tools)
 
@@ -183,6 +205,17 @@ main() {
         done
     fi
 
+    # Compute overlay summary and config_modes map from the completed _tools_json.
+    # Only "overlay" mode is reported — "full" and "skip" are deliberate knob choices.
+    local _overlay_count _overlay_example _config_modes
+    _overlay_count="$(jq '[.[] | select(.config_mode=="overlay")] | length' \
+        <<< "$_tools_json" 2>/dev/null || printf '0')"
+    _overlay_example="$(jq -r \
+        '([.[] | select(.config_mode=="overlay")] | if length > 0 then .[0].name else "" end)' \
+        <<< "$_tools_json" 2>/dev/null || true)"
+    _config_modes="$(jq -c '[.[] | {key:.name,value:.config_mode}] | from_entries' \
+        <<< "$_tools_json" 2>/dev/null || printf '{}')"
+
     jq \
         --argjson stacks "$(printf '%s' "${SG_STACKS:-}" | jq -Rcs 'split(" ") | map(select(length > 0))')" \
         --arg stacks_source "${SG_STACKS_SOURCE:-auto}" \
@@ -193,11 +226,13 @@ main() {
         --arg node_cfg "$_node_cfg" \
         --argjson tools "$_tools_json" \
         --argjson fw_versions "$_fw_versions" \
+        --argjson config_modes "$_config_modes" \
         '.stacks = $stacks
          | .stacks_source = $stacks_source
          | .stacks_warnings = $stacks_warnings
          | .tools = $tools
          | .config_sources = {php: $php_cfg, go: $go_cfg, python: $python_cfg, node: $node_cfg}
+         | .config_modes = $config_modes
          | .framework_versions = $fw_versions' \
         "${_sdir}/profile.json" > "${_sdir}/profile.json.tmp" \
         && mv "${_sdir}/profile.json.tmp" "${_sdir}/profile.json"
@@ -258,6 +293,14 @@ main() {
                 "$_ext_total" "$_ext_active" "$_ext_inactive" \
                 "$_ext_total_overrides" "$_ext_downgrades"
         fi
+    fi
+    # Show one line when any tool is running in overlay mode (security findings only).
+    # Print nothing when every tool has a project config or the knob is non-overlay.
+    if [ "${_overlay_count:-0}" -gt 0 ] && [ -n "${_overlay_example:-}" ]; then
+        local _ov_word
+        [ "${_overlay_count}" -eq 1 ] && _ov_word="tool" || _ov_word="tools"
+        printf 'slop-guard: %s %s using example configs (security findings only) — adopt one: slopguard adopt-config %s\n' \
+            "$_overlay_count" "$_ov_word" "$_overlay_example"
     fi
     cat <<'DIGEST'
 slop-guard active — always-on rules (full text: skill agent-discipline)

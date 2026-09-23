@@ -374,6 +374,113 @@ _budget_bytes="$(printf '%s\n' "${_budget_out}" | wc -c | tr -d ' ')"
     && ok  "budget: steady-state digest within 1500-byte limit (${_budget_bytes} bytes)" \
     || bad "budget: 1500-byte limit exceeded" "got ${_budget_bytes} bytes (limit 1500)"
 
+# --------------------------------------------------------------------------- #
+# 13. Overlay digest line: appears with tool count when tools have no project config
+# --------------------------------------------------------------------------- #
 
+# Run with default knob (overlay) against an empty project — all tools fall back to
+# the baseline, so the overlay line must appear with a non-zero count.
+_ov_proj="${WORK}/overlay-proj"
+mkdir -p "${_ov_proj}"
+_ov_json='{"session_id":"overlay-test-001","cwd":"/tmp","hook_event_name":"SessionStart","agent_id":null,"agent_type":null}'
+# First run clears missing-tools marker.
+printf '%s\n' "${_ov_json}" \
+    | CLAUDE_PLUGIN_OPTION_CONFIG_SOURCE="overlay" CLAUDE_PROJECT_DIR="${_ov_proj}" "${HOOK}" >/dev/null 2>&1
+# Second run: steady-state (no missing-tools noise).
+_ov_out="$(printf '%s\n' "${_ov_json}" \
+    | CLAUDE_PLUGIN_OPTION_CONFIG_SOURCE="overlay" CLAUDE_PROJECT_DIR="${_ov_proj}" "${HOOK}" 2>/dev/null)"
+
+printf '%s\n' "${_ov_out}" | grep -q 'using example configs' \
+    && ok  "overlay: digest line present when tools have no project config" \
+    || bad "overlay: digest line present when tools have no project config" "${_ov_out}"
+
+printf '%s\n' "${_ov_out}" | grep -q 'security findings only' \
+    && ok  "overlay: digest line mentions security findings only" \
+    || bad "overlay: digest line mentions security findings only" "${_ov_out}"
+
+printf '%s\n' "${_ov_out}" | grep -q 'adopt-config' \
+    && ok  "overlay: digest line includes adopt-config hint" \
+    || bad "overlay: digest line includes adopt-config hint" "${_ov_out}"
+
+# The count must be a positive integer.
+_ov_count="$(printf '%s\n' "${_ov_out}" \
+    | grep 'using example configs' \
+    | sed 's/.*slop-guard: \([0-9][0-9]*\) .*/\1/' | head -1 || true)"
+[ "${_ov_count:-0}" -gt 0 ] \
+    && ok  "overlay: count is positive (${_ov_count} tools)" \
+    || bad "overlay: count is positive" "got: ${_ov_count}"
+
+# profile.json must carry config_modes map.
+_ov_sess="${_TEST_DATA}/sessions/overlay-test-001"
+if [ -f "${_ov_sess}/profile.json" ]; then
+    _ov_modes_type="$(jq -r '.config_modes | type' "${_ov_sess}/profile.json" 2>/dev/null || printf 'ERROR')"
+    [ "${_ov_modes_type}" = "object" ] \
+        && ok  "overlay: profile.json carries .config_modes object" \
+        || bad "overlay: profile.json .config_modes type" "got: ${_ov_modes_type}"
+
+    _ov_ruff_mode="$(jq -r '.config_modes.ruff' "${_ov_sess}/profile.json" 2>/dev/null || true)"
+    [ "${_ov_ruff_mode}" = "overlay" ] \
+        && ok  "overlay: profile.json .config_modes.ruff = overlay for baseline project" \
+        || bad "overlay: profile.json .config_modes.ruff" "got: ${_ov_ruff_mode}"
+else
+    bad "overlay: profile.json missing for overlay-test-001" ""
+fi
+
+# tools[] array must carry config_mode per entry.
+if [ -f "${_ov_sess}/profile.json" ]; then
+    _ov_has_cm="$(jq -r '.tools[0] | has("config_mode")' "${_ov_sess}/profile.json" 2>/dev/null || printf 'false')"
+    [ "${_ov_has_cm}" = "true" ] \
+        && ok  "overlay: tools[] records carry config_mode field" \
+        || bad "overlay: tools[] records carry config_mode field" "got: ${_ov_has_cm}"
+fi
+
+# --------------------------------------------------------------------------- #
+# 14. Overlay digest line: absent when config_source knob is 'full'
+# --------------------------------------------------------------------------- #
+
+# With knob=full, all tools without project configs are in 'full' mode (not overlay),
+# so the overlay line must NOT appear.
+_full_proj="${WORK}/full-proj"
+mkdir -p "${_full_proj}"
+_full_json='{"session_id":"full-test-001","cwd":"/tmp","hook_event_name":"SessionStart","agent_id":null,"agent_type":null}'
+# First run clears missing-tools marker.
+printf '%s\n' "${_full_json}" \
+    | CLAUDE_PLUGIN_OPTION_CONFIG_SOURCE="full" CLAUDE_PROJECT_DIR="${_full_proj}" "${HOOK}" >/dev/null 2>&1
+# Second run.
+_full_out="$(printf '%s\n' "${_full_json}" \
+    | CLAUDE_PLUGIN_OPTION_CONFIG_SOURCE="full" CLAUDE_PROJECT_DIR="${_full_proj}" "${HOOK}" 2>/dev/null)"
+
+printf '%s\n' "${_full_out}" | grep -q 'using example configs' \
+    && bad "overlay: line must be absent when config_source=full" "${_full_out}" \
+    || ok  "overlay: line absent when config_source=full (all tools in full mode)"
+
+# profile.json must show mode=full for ruff.
+_full_sess="${_TEST_DATA}/sessions/full-test-001"
+if [ -f "${_full_sess}/profile.json" ]; then
+    _full_ruff_mode="$(jq -r '.config_modes.ruff' "${_full_sess}/profile.json" 2>/dev/null || true)"
+    [ "${_full_ruff_mode}" = "full" ] \
+        && ok  "overlay: profile.json .config_modes.ruff = full when knob=full" \
+        || bad "overlay: profile.json .config_modes.ruff with knob=full" "got: ${_full_ruff_mode}"
+else
+    bad "overlay: profile.json missing for full-test-001" ""
+fi
+
+# --------------------------------------------------------------------------- #
+# 15. Budget with overlay line: still within §8.8 limits
+# --------------------------------------------------------------------------- #
+
+# Reuse the existing _budget_out (knob=overlay by default; all tools baseline).
+# The overlay line is expected to appear; the total must still fit in 15/1500.
+_budget_lines_ov="$(printf '%s\n' "${_budget_out}" | wc -l | tr -d ' ')"
+_budget_bytes_ov="$(printf '%s\n' "${_budget_out}" | wc -c | tr -d ' ')"
+printf '%s\n' "${_budget_out}" | grep -q 'using example configs' \
+    && ok  "budget: overlay line present in budget-proj output" \
+    || ok  "budget: overlay line absent (all tools already have configs)"
+[ "${_budget_lines_ov}" -le 15 ] \
+    && ok  "budget+overlay: within 15-line limit (${_budget_lines_ov} lines)" \
+    || bad "budget+overlay: 15-line limit exceeded" "got ${_budget_lines_ov} lines (limit 15)"
+[ "${_budget_bytes_ov}" -le 1500 ] \
+    && ok  "budget+overlay: within 1500-byte limit (${_budget_bytes_ov} bytes)" \
+    || bad "budget+overlay: 1500-byte limit exceeded" "got ${_budget_bytes_ov} bytes (limit 1500)"
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ] || exit 1

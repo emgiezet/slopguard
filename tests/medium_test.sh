@@ -249,6 +249,7 @@ jq -n \
     | CLAUDE_PROJECT_DIR="$_mt_repo_dedup" \
       SLOPGUARD_MEDIUM_DEBOUNCE=0 \
       CLAUDE_PLUGIN_OPTION_ENFORCEMENT_MODE=balanced \
+      CLAUDE_PLUGIN_OPTION_CONFIG_SOURCE=full \
       "${PLUGIN_ROOT}/bin/slopguard" post-write --tier=medium \
       2>/dev/null || _mt_exit_dedup1=$?
 [ "$_mt_exit_dedup1" -eq 2 ] \
@@ -265,6 +266,7 @@ jq -n \
     | CLAUDE_PROJECT_DIR="$_mt_repo_dedup" \
       SLOPGUARD_MEDIUM_DEBOUNCE=0 \
       CLAUDE_PLUGIN_OPTION_ENFORCEMENT_MODE=balanced \
+      CLAUDE_PLUGIN_OPTION_CONFIG_SOURCE=full \
       "${PLUGIN_ROOT}/bin/slopguard" post-write --tier=medium \
       2>/dev/null || _mt_exit_dedup2=$?
 [ "$_mt_exit_dedup2" -eq 0 ] \
@@ -345,6 +347,7 @@ jq -n \
     | CLAUDE_PROJECT_DIR="$_mt_e2e_repo" \
       SLOPGUARD_MEDIUM_DEBOUNCE=0 \
       CLAUDE_PLUGIN_OPTION_ENFORCEMENT_MODE=balanced \
+      CLAUDE_PLUGIN_OPTION_CONFIG_SOURCE=full \
       "${PLUGIN_ROOT}/bin/slopguard" post-write --tier=medium \
       2>"$_mt_e2e_stderr" || _mt_e2e_exit=$?
 

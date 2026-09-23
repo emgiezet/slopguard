@@ -96,6 +96,14 @@ _stop_run_psalm() {
     done <<< "$changed_files"
     [ "$has_php" -eq 1 ] || return 0
 
+    # Respect config_source knob: project-only skips psalm even at stop gate.
+    # In overlay mode all psalm taint findings are category=security, so the overlay
+    # filter is a no-op here — none are silenced.  Verify rather than assume.
+    if declare -F tool_config_mode >/dev/null 2>&1; then
+        local _psalm_mode; _psalm_mode="$(tool_config_mode psalm "$project_dir")"
+        [ "$_psalm_mode" = "skip" ] && return 0
+    fi
+
     # Resolve binary.
     local psalm_bin=""
     if declare -F resolve_tool >/dev/null 2>&1; then
@@ -220,6 +228,14 @@ _stop_run_checkov() {
 
     local iac_dirs; iac_dirs="$(_stop_iac_dirs "$changed_files")"
     [ -n "$iac_dirs" ] || return 0
+
+    # Respect config_source knob: project-only skips checkov even at stop gate.
+    # In overlay mode all checkov findings here are category=security, so the overlay
+    # filter is a no-op here — none are silenced.  Verify rather than assume.
+    if declare -F tool_config_mode >/dev/null 2>&1; then
+        local _ckv_mode; _ckv_mode="$(tool_config_mode checkov "$project_dir")"
+        [ "$_ckv_mode" = "skip" ] && return 0
+    fi
 
     # Resolve binary.
     local ckv_bin=""
