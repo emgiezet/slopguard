@@ -1,0 +1,21 @@
+# Cases known to fail against the real tool, with the evidence and what is left
+# to establish. One case label per line; comments and blank lines ignored.
+#
+# The runner enforces this list in both directions: a listed case that fails is
+# reported as "known" and does not fail the build, and a listed case that PASSES
+# fails the build with "remove it from KNOWN-FAILING". A quarantine that cannot
+# expire is how dead tests accumulate.
+#
+# zizmor: the tool reports the finding (raw JSON shows ident=artipacked with a
+# locations[] array) and the parser extracts it, but nothing reaches the hook
+# output — not even the "pre-existing" note a security finding outside changed
+# lines would produce. Next step: log the emit decision (mapping hit, category,
+# changed-range verdict) for this path in CI.
+zizmor: checkout without persist-credentials:false (bad fixture -> AP-CI-005)
+#
+# psalm: taint analysis returns [] on a fixture where $_GET flows into
+# PDO::query() from a called function. PDO::query carries @psalm-taint-sink in
+# psalm's own stubs, so the sink is recognised. Next step: check whether the
+# stop gate's whole-project invocation actually includes the fixture directory
+# in <projectFiles>, since taint analysis builds its graph project-wide.
+psalm stop-gate: TaintedSql → AP-PHP-SEC-001

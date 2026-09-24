@@ -1,0 +1,298 @@
+#!/usr/bin/env bash
+# tests/tool-integration — standalone real-tool integration runner for slop-guard.
+#
+# Runs each tests/integration/*.sh against the real pinned toolchain through the
+# shipped hook path.  Skips cleanly when a tool binary is absent from PATH.
+#
+# NOT sourced by tests/run-tests — this suite is allowed to be slow and to
+# require real binaries installed by CI.  Run it independently:
+#
+#   plugins/slop-guard/tests/tool-integration
+#
+# Exit codes: 0 = all executed tests passed (skips are not failures),
+#             1 = at least one test failed.
+set -uo pipefail
+
+TESTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+PLUGIN_ROOT="$(cd "${TESTS_DIR}/.." && pwd)"
+: "${CLAUDE_PLUGIN_ROOT:=$PLUGIN_ROOT}"
+export CLAUDE_PLUGIN_ROOT
+
+# --------------------------------------------------------------------------- #
+# Prerequisites
+# --------------------------------------------------------------------------- #
+
+command -v jq >/dev/null 2>&1 \
+    || { printf 'tool-integration: jq is required\n' >&2; exit 1; }
+
+command -v git >/dev/null 2>&1 \
+    || { printf 'tool-integration: git is required\n' >&2; exit 1; }
+
+# Source tools.sh for lock_bin (binary-name lookup from tools.lock.json).
+# shellcheck source=../lib/tools.sh
+. "${PLUGIN_ROOT}/lib/tools.sh"
+
+# --------------------------------------------------------------------------- #
+# Counters and temp workspace
+# --------------------------------------------------------------------------- #
+
+PASS=0
+FAIL=0
+SKIP=0
+
+# Snap-confined tools (ruff, hadolint, …) can access non-hidden $HOME dirs but
+# not /tmp or $HOME/.* hidden dirs.  Use a plain $HOME subdir so vendor/bin
+# symlinks resolve correctly on developer machines; CI native installs are fine
+# with any path.
+_IT_WORK="$(mktemp -d "${HOME}/sg-it-${$}-XXXXXX")"
+_IT_FIXTURES="${TESTS_DIR}/fixtures"
+_IT_CUR_PROJ=""
+_IT_RUN_N=0
+
+_it_cleanup() { rm -rf "${_IT_WORK}"; }
+trap '_it_cleanup' EXIT INT TERM
+
+# --------------------------------------------------------------------------- #
+# Helper API — used by tests/integration/*.sh
+# --------------------------------------------------------------------------- #
+
+KNOWN=0
+_KNOWN_FILE="${INTEGRATION_DIR:-${TESTS_DIR}/integration}/KNOWN-FAILING"
+
+# _it_is_known <label>
+# True when the label is listed in KNOWN-FAILING (comments and blanks ignored).
+_it_is_known() {
+    [ -f "$_KNOWN_FILE" ] || return 1
+    grep -v '^[[:space:]]*#' "$_KNOWN_FILE" 2>/dev/null \
+        | grep -v '^[[:space:]]*$' \
+        | grep -qxF "$1"
+}
+
+# A listed case that fails is reported and does not break the build; a listed
+# case that PASSES does break it, because a quarantine nobody can leave is how
+# dead tests accumulate.
+it_ok()   {
+    if _it_is_known "$1"; then
+        printf '  FAIL  %s: listed in KNOWN-FAILING but passed — remove it from the list\n' "$1"
+        FAIL=$((FAIL + 1))
+        return
+    fi
+    printf '  ok    %s\n' "$1"; PASS=$((PASS + 1))
+}
+it_bad()  {
+    if _it_is_known "$1"; then
+        printf '  known %s: %s\n' "$1" "$2"
+        KNOWN=$((KNOWN + 1))
+        return
+    fi
+    printf '  FAIL  %s: %s\n' "$1" "$2"; FAIL=$((FAIL + 1))
+}
+it_skip() { printf '  skip  %s\n' "$1"; SKIP=$((SKIP + 1)); }
+
+# it_skip_unless_tool <slopguard-tool-name>
+# Looks up the binary name via lock_bin, then checks PATH.
+# If absent: records one skip entry and returns 1.
+# If present: symlinks the binary into ${_IT_CUR_PROJ}/vendor/bin/ so
+#   resolve_tool finds it without the lockfile version check, then returns 0.
+# MUST be called after it_project so _IT_CUR_PROJ is set.
+it_skip_unless_tool() {
+    local tool="$1"
+    local bin path
+    bin="$(lock_bin "$tool" 2>/dev/null || printf '%s' "$tool")"
+    # Resolve exactly the way the dispatcher does. resolve_tool honours
+    # tool_source and the lockfile version, so a PATH copy of the wrong version
+    # is invisible here too — and, more importantly, the CI toolchain lives
+    # under CLAUDE_PLUGIN_DATA with tool_source=plugin-only, where a plain
+    # `command -v` finds nothing. That is how this suite first reported
+    # "0 passed, 0 failed, 11 skipped" in CI and still went green.
+    path="$(CLAUDE_PROJECT_DIR="${_IT_CUR_PROJ:-${PWD}}" resolve_tool "$tool" 2>/dev/null || true)"
+    if [ -z "$path" ]; then
+        path="$(command -v "$bin" 2>/dev/null || true)"
+    fi
+    if [ -z "$path" ]; then
+        it_skip "${tool}: no binary (lockfile name: ${bin})"
+        return 1
+    fi
+    # Place the binary where the dispatcher will find it under project-first.
+    # With SLOPGUARD_IT_DEBUG=1 a tee wrapper goes there instead, so a failing
+    # case can show what the tool actually printed rather than an empty hook
+    # output — diagnosing a silent parser from silence is how these defects
+    # survived review twice.
+    if [ -n "${_IT_CUR_PROJ:-}" ] && [ -d "${_IT_CUR_PROJ}/vendor/bin" ]; then
+        if [ "${SLOPGUARD_IT_DEBUG:-0}" = "1" ]; then
+            _IT_RAW_TOOL="$tool"
+            _IT_RAW="${_IT_WORK}/raw-${tool}.out"
+            {
+                printf '#!/usr/bin/env bash\n'
+                printf 'out="$("%s" "$@" 2>&1)"; rc=$?\n' "$path"
+                printf 'printf "%%s" "$out" | tee -a "%s" >/dev/null\n' "$_IT_RAW"
+                printf 'printf "%%s" "$out"\n'
+                printf 'exit "$rc"\n'
+            } > "${_IT_CUR_PROJ}/vendor/bin/${bin}"
+            chmod +x "${_IT_CUR_PROJ}/vendor/bin/${bin}"
+        else
+            ln -sf "$path" "${_IT_CUR_PROJ}/vendor/bin/${bin}"
+        fi
+    fi
+    return 0
+}
+
+# it_project <name>
+# Create a minimal git repo under ${_IT_WORK}/<name>/ with an empty vendor/bin.
+# Sets _IT_CUR_PROJ to the repo path.  Call directly (not inside $(...)):
+#   it_project ruff-bad
+#   _proj="$_IT_CUR_PROJ"
+# Using $() creates a subshell that silently drops the _IT_CUR_PROJ assignment.
+it_project() {
+    local name="${1:-proj}"
+    local dir="${_IT_WORK}/${name}"
+    mkdir -p "${dir}/vendor/bin"
+    git -C "$dir" init -q
+    git -C "$dir" config user.email "sg-integration@test"
+    git -C "$dir" config user.name "SlopGuard Integration"
+    _IT_CUR_PROJ="$dir"
+}
+
+# it_commit <dir> <relfile> <content>
+# Write <content> to <dir>/<relfile> and make an initial git commit.
+it_commit() {
+    local dir="$1" relfile="$2" content="$3"
+    mkdir -p "${dir}/$(dirname "$relfile")"
+    printf '%s' "$content" > "${dir}/${relfile}"
+    git -C "$dir" add "$relfile"
+    git -C "$dir" commit -q -m "initial"
+}
+
+# it_modify <dir> <relfile> <content>
+# Overwrite <dir>/<relfile> without committing (so git diff sees the change).
+it_modify() {
+    local dir="$1" relfile="$2" content="$3"
+    printf '%s' "$content" > "${dir}/${relfile}"
+}
+
+# it_run <dir> <abs_file_path> <tier>
+# Drive bin/slopguard post-write --tier=<tier> with a synthetic hook payload.
+# Always uses advisory enforcement so exit code is always 0 and all findings
+# (including pre-existing info) surface in hookSpecificOutput.additionalContext.
+# Prints combined stdout+stderr.
+it_run() {
+    local dir="$1" file="$2" tier="${3:-fast}"
+    _IT_RUN_N=$(( _IT_RUN_N + 1 ))
+    local sess="it-${$}-${_IT_RUN_N}"
+    local payload
+    payload="$(jq -n \
+        --arg sid "$sess" \
+        --arg fp  "$file" \
+        '{session_id:$sid,agent_id:null,tool_name:"Write",
+          tool_input:{file_path:$fp,content:""}}')"
+    local out
+    # CLAUDE_PLUGIN_DATA must be inherited when the caller set one: in CI the
+    # pinned toolchain lives there and tool_source is plugin-only, so pointing
+    # the hook at a fresh empty directory made every tool "unavailable" while
+    # the suite itself had resolved them fine. Session state lands under the
+    # same root, keyed by a unique session id, so cases stay isolated.
+    out="$(printf '%s\n' "$payload" | \
+        CLAUDE_PROJECT_DIR="$dir" \
+        CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT" \
+        CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA:-${_IT_WORK}/plugin-data}" \
+        CLAUDE_PLUGIN_OPTION_TOOL_SOURCE="$([ "${SLOPGUARD_IT_DEBUG:-0}" = "1" ] && printf 'project-first' || printf '%s' "${CLAUDE_PLUGIN_OPTION_TOOL_SOURCE:-project-first}")" \
+        CLAUDE_PLUGIN_OPTION_ENFORCEMENT_MODE=advisory \
+        "${PLUGIN_ROOT}/bin/slopguard" post-write --tier="$tier" 2>&1)" || true
+    printf '%s' "$out"
+}
+
+# it_expect_ap <output> <AP-ID> <label>
+# Pass when <AP-ID> appears anywhere in <output>; fail otherwise.
+it_expect_ap() {
+    local out="$1" ap_id="$2" label="$3"
+    if printf '%s\n' "$out" | grep -qF "$ap_id"; then
+        it_ok "$label"
+    else
+        it_bad "$label" \
+            "expected ${ap_id}; hook output: $(printf '%s\n' "$out" | head -c 1500)"
+        # A failure here means a parser did not understand its tool. Guessing at
+        # the reason from an empty hook output is how these defects survived in
+        # the first place, so dump what the tool actually printed.
+        it_diagnose
+    fi
+}
+
+# it_diagnose
+# Print the last raw tool invocation captured by it_capture, if any.
+it_diagnose() {
+    [ -s "${_IT_RAW:-/nonexistent}" ] || return 0
+    printf '        raw tool output (%s):\n' "${_IT_RAW_TOOL:-unknown}"
+    head -c 1200 "$_IT_RAW" | sed 's/^/        | /'
+    printf '\n'
+}
+
+# it_capture <tool> <dir> -- <cmd...>
+# Run a tool exactly as the dispatcher would and store its stdout for
+# it_diagnose. Used by cases that want the real payload on failure.
+it_capture() {
+    local tool="$1" dir="$2"; shift 3
+    _IT_RAW_TOOL="$tool"
+    _IT_RAW="${_IT_WORK}/raw-${tool}.json"
+    ( cd "$dir" && "$@" ) > "$_IT_RAW" 2>&1 || true
+}
+
+# it_expect_silent <output> <label>
+# Pass when the hook produced no additionalContext (no findings).
+# Fail when any findings appear (additionalContext key present in JSON output).
+it_expect_silent() {
+    local out="$1" label="$2"
+    if printf '%s\n' "$out" | grep -qF '"additionalContext"'; then
+        it_bad "$label" \
+            "expected no findings; hook output: $(printf '%s\n' "$out" | head -c 1500)"
+    else
+        it_ok "$label"
+    fi
+}
+
+# --------------------------------------------------------------------------- #
+# Source integration test files in sorted order
+# --------------------------------------------------------------------------- #
+
+INTEGRATION_DIR="${TESTS_DIR}/integration"
+
+printf 'slop-guard integration suite\n\n'
+
+if [ ! -d "$INTEGRATION_DIR" ]; then
+    printf 'no integration tests found (missing %s/)\n' "$INTEGRATION_DIR"
+    printf '\n%d passed, %d failed, %d skipped\n' "$PASS" "$FAIL" "$SKIP"
+    exit 0
+fi
+
+_it_found=0
+for _it_file in "${INTEGRATION_DIR}"/*.sh; do
+    [ -f "$_it_file" ] || continue
+    _it_found=$(( _it_found + 1 ))
+    _it_name="$(basename "$_it_file")"
+    printf -- '--- %s ---\n' "$_it_name"
+    # shellcheck disable=SC1090
+    . "$_it_file"
+    printf '\n'
+done
+
+if [ "$_it_found" -eq 0 ]; then
+    printf 'no *.sh files in %s/\n' "$INTEGRATION_DIR"
+fi
+
+printf '%d passed, %d failed, %d skipped, %d known\n' "$PASS" "$FAIL" "$SKIP" "$KNOWN"
+[ "$FAIL" -eq 0 ] || exit 1
+
+# SLOPGUARD_IT_REQUIRE=1 turns a skip into a failure. CI sets it: there the whole
+# pinned toolchain is installed, so a skip means the suite could not find a tool
+# it should have found — and a run where everything skipped must not look like a
+# run where everything passed. That distinction is the only reason this file
+# earns its place.
+if [ "${SLOPGUARD_IT_REQUIRE:-0}" = "1" ]; then
+    if [ "$SKIP" -gt 0 ]; then
+        printf 'SLOPGUARD_IT_REQUIRE=1: %d tool(s) skipped — every pinned tool must run here\n' "$SKIP"
+        exit 1
+    fi
+    if [ "$PASS" -eq 0 ]; then
+        printf 'SLOPGUARD_IT_REQUIRE=1: nothing ran\n'
+        exit 1
+    fi
+fi

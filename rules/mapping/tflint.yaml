@@ -17,6 +17,11 @@ rules:
     severity: warn
     category: maintainability
     cwe: ""
+  terraform_required_providers:
+    ap_id: AP-TF-MAINT-008
+    severity: warn
+    category: maintainability
+    cwe: ""
   terraform_documented_variables:
     ap_id: AP-TF-MAINT-004
     severity: warn

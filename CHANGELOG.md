@@ -3,6 +3,15 @@
 All notable changes to Slop Guard will be documented in this file.
 
 ## Unreleased
+- **Integration test suite against real tool binaries (D30)** (2026-09-24)
+  - `tests/tool-integration` (new): runner that globs `tests/integration/*.sh` in sorted order, counts `ok`/`bad`/`skip`, prints a summary, and exits non-zero on any failure. A skipped tool is not a failure — a developer without the full toolchain still gets a useful run.
+  - `tests/integration/fast.sh`, `tests/integration/medium.sh`, `tests/integration/stop.sh` (new): per-tier cases that invoke each wired linter's own `bad`/`good` fixture through `bin/slopguard post-write --tier=<tier>` and assert the finding carries the correct `AP-*` id.
+  - `Makefile`: `tool-integration` target added — guarded by `test -x` so the target is honest when the file is absent; not wired to `validate`; CI runs it after `slopguard doctor --install`.
+  - `.github/workflows/validate.yml`: "Tool integration tests (real binaries)" step added to the `validate` job immediately after `make validate`, reusing the same `CLAUDE_PLUGIN_DATA` env. The `validate` job installs the full pinned toolchain via `slopguard doctor --install`; no tool is skipped in CI.
+  - `docs/slop-guard-spec.md` §11.1: test class 7 (integration with real binaries) added — rationale, the two concrete false-green cases (PHPStan `.files[].errors` vs `.messages`; ruff `.row` vs `location.row`), and the CI/developer-machine split.
+  - `docs/decisions.md`: D30 recorded — the defect class, the design (CI-only, skip-per-tool on dev machines), and the consequence (parser that misreads its tool fails the build).
+  - **Why unit stubs are insufficient (D30).** A stub is written by the author of the parser; if the author has a wrong mental model of the tool's JSON format, both the parser and the stub share that model. The integration suite is the only place where the real binary's actual output meets the actual parser.
+
 - **Security overlay as default baseline fallback (`config_source`)** (2026-09-23)
   - `plugin.json` (both manifests): `config_source` added to `userConfig` adjacent to `tool_source`; type string, default `"overlay"`, description `"overlay | full | project-only"`. Hook env: `CLAUDE_PLUGIN_OPTION_CONFIG_SOURCE`.
   - `docs/slop-guard-spec.md` §2 Z1: third bullet rewritten — baseline configs now behave as a security overlay by default; `config_source` knob documented with all three values and the rationale (repositories that never adopted our style rules should not receive them; security is what the guard is installed for; unknown rules are not treated as security in overlay mode).

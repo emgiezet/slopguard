@@ -44,6 +44,12 @@ rules:
     severity: warn
     category: security
     cwe: ""
+  # CKV2 checks (Checkov 3.x) — fired on the integration test fixture
+  CKV2_AWS_62:
+    ap_id: AP-TF-SEC-018
+    severity: warn
+    category: security
+    cwe: ""
   # Kubernetes
   CKV_K8S_1:
     ap_id: AP-K8S-010
