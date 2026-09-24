@@ -1,0 +1,108 @@
+---
+# mypy error code → severity mapping for the project-local mypy descriptor
+# (configs/baseline/descriptors/mypy.yaml).
+#
+# mypy finds type contradictions, not anti-patterns, so every code maps to the
+# bucket id AP-PY-TYPE-000 — the catalog has no entry for "you passed a str
+# where an int was declared". The bucket id is required, not decorative: the
+# dispatch reader splits the mapping row on tabs, and an empty ap_id would
+# shift severity into its place.
+# Codes that always indicate a real defect are error; codes that flag a
+# suspicious but sometimes-deliberate construct are warn. A code absent from
+# this table still reports, at the runner default (warn / maintainability).
+rules:
+  attr-defined:
+    ap_id: AP-PY-TYPE-000
+    severity: error
+    category: maintainability
+    cwe: ""
+  union-attr:
+    ap_id: AP-PY-TYPE-000
+    severity: error
+    category: maintainability
+    cwe: ""
+  name-defined:
+    ap_id: AP-PY-TYPE-000
+    severity: error
+    category: maintainability
+    cwe: ""
+  call-arg:
+    ap_id: AP-PY-TYPE-000
+    severity: error
+    category: maintainability
+    cwe: ""
+  arg-type:
+    ap_id: AP-PY-TYPE-000
+    severity: error
+    category: maintainability
+    cwe: ""
+  return-value:
+    ap_id: AP-PY-TYPE-000
+    severity: error
+    category: maintainability
+    cwe: ""
+  assignment:
+    ap_id: AP-PY-TYPE-000
+    severity: error
+    category: maintainability
+    cwe: ""
+  operator:
+    ap_id: AP-PY-TYPE-000
+    severity: error
+    category: maintainability
+    cwe: ""
+  index:
+    ap_id: AP-PY-TYPE-000
+    severity: error
+    category: maintainability
+    cwe: ""
+  override:
+    ap_id: AP-PY-TYPE-000
+    severity: error
+    category: maintainability
+    cwe: ""
+  func-returns-value:
+    ap_id: AP-PY-TYPE-000
+    severity: error
+    category: maintainability
+    cwe: ""
+  await-not-async:
+    ap_id: AP-PY-TYPE-000
+    severity: error
+    category: maintainability
+    cwe: ""
+  unreachable:
+    ap_id: AP-PY-TYPE-000
+    severity: warn
+    category: maintainability
+    cwe: ""
+  redundant-expr:
+    ap_id: AP-PY-TYPE-000
+    severity: warn
+    category: maintainability
+    cwe: ""
+  truthy-bool:
+    ap_id: AP-PY-TYPE-000
+    severity: warn
+    category: maintainability
+    cwe: ""
+  no-any-return:
+    ap_id: AP-PY-TYPE-000
+    severity: warn
+    category: maintainability
+    cwe: ""
+  no-untyped-def:
+    ap_id: AP-PY-TYPE-000
+    severity: info
+    category: maintainability
+    cwe: ""
+  import-untyped:
+    ap_id: AP-PY-TYPE-000
+    severity: info
+    category: maintainability
+    cwe: ""
+  import-not-found:
+    ap_id: AP-PY-TYPE-000
+    severity: info
+    category: maintainability
+    cwe: ""

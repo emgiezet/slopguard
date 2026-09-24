@@ -49,3 +49,19 @@ behaviour for all tools at once:
 | `project-only` | tool does not run at all |
 
 Per-tool override is not supported; adopt the config to unlock all findings for a single tool.
+
+## `descriptors/` — tools the plugin deliberately does not pin
+
+`descriptors/*.yaml` are not linter configs; they are project tool descriptors
+(`.slopguard/tools/<name>.yaml`) for analyzers that only work from the project's own
+environment. `mypy` and `pylint` resolve imports through the project interpreter, so a
+plugin-installed copy reports errors that do not exist in your code.
+
+```bash
+slopguard adopt-config mypy      # writes .slopguard/tools/mypy.yaml
+```
+
+The adopted descriptor resolves the binary from `.venv/bin`, `venv/bin`, or `.tox/py/bin`.
+Nothing is downloaded, nothing is pinned, and a project without the tool installed simply
+reports it as absent. Severity comes from `rules/mapping/<name>.yaml`, which your project can
+patch per rule in `.slopguard/mapping/<name>.yaml`.

@@ -82,16 +82,58 @@ printf '%s\n' "${_out}" | grep -qE 'stacks \(auto\):' \
     && ok  "empty project: outputs source-labelled stacks line" \
     || bad "empty project: outputs source-labelled stacks line" "missing in: ${_out}"
 
-printf '%s\n' "${_out}" | grep -q 'missing tools:.*doctor --install' \
+printf '%s\n' "${_out}" | grep -q 'missing tools for this project:.*doctor --install' \
     && ok  "missing tools: first session start reports install command" \
     || bad "missing tools: first session start reports install command" "${_out}"
 
+# A project with no stack still needs the core tools, and must never be asked
+# for a language linter it cannot use.
+printf '%s\n' "${_out}" | grep -qE 'missing tools for this project:.*(betterleaks|jq|shellcheck)' \
+    && ok  "missing tools: core tools are reported for a stackless project" \
+    || bad "missing tools: core tools are reported for a stackless project" "${_out}"
+
+if printf '%s\n' "${_out}" | grep -qE 'missing tools for this project:.*(phpstan|golangci-lint|ruff|tflint)'; then
+    bad "missing tools: stack-specific tools stay out of a stackless project" "${_out}"
+else
+    ok "missing tools: stack-specific tools stay out of a stackless project"
+fi
+
 _out_repeat="$(printf '%s\n' "${SESSION_JSON}" \
     | CLAUDE_PROJECT_DIR="${_empty}" "${HOOK}" 2>/dev/null)"
-if printf '%s\n' "${_out_repeat}" | grep -q 'missing tools:'; then
+if printf '%s\n' "${_out_repeat}" | grep -q 'missing tools'; then
     bad "missing tools: report appears once per session" "${_out_repeat}"
 else
     ok "missing tools: report appears once per session"
+fi
+
+# --------------------------------------------------------------------------- #
+# 3b. Tool relevance follows the detected stacks
+# --------------------------------------------------------------------------- #
+
+_pyproj="${WORK}/py-scope"
+mkdir -p "${_pyproj}"
+printf '[project]\nname = "x"\n' > "${_pyproj}/pyproject.toml"
+_py_json="$(printf '%s\n' "${SESSION_JSON}" | jq -c '.session_id = "scope-python-001"')"
+printf '%s\n' "${_py_json}" \
+    | CLAUDE_PROJECT_DIR="${_pyproj}" "${HOOK}" >/dev/null 2>&1
+_py_profile="${_TEST_DATA}/sessions/scope-python-001/profile.json"
+
+if [ -f "${_py_profile}" ]; then
+    _py_rel="$(jq -r '[.tools[] | select(.relevant) | .name] | sort | join(" ")' "${_py_profile}")"
+    case " ${_py_rel} " in
+        *" ruff "*) ok "tool scope: python project marks ruff relevant" ;;
+        *)          bad "tool scope: python project marks ruff relevant" "${_py_rel}" ;;
+    esac
+    case " ${_py_rel} " in
+        *" phpstan "*) bad "tool scope: python project leaves phpstan irrelevant" "${_py_rel}" ;;
+        *)             ok "tool scope: python project leaves phpstan irrelevant" ;;
+    esac
+    _py_src="$(jq -r '.tools[] | select(.name == "phpstan") | .source' "${_py_profile}")"
+    [ "${_py_src}" = "not-applicable" ] \
+        && ok  "tool scope: irrelevant tool records source=not-applicable" \
+        || bad "tool scope: irrelevant tool records source=not-applicable" "got: ${_py_src}"
+else
+    bad "tool scope: python session profile written" "missing ${_py_profile}"
 fi
 
 # --------------------------------------------------------------------------- #

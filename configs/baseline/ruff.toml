@@ -5,20 +5,25 @@ extend-exclude = ["migrations", ".venv", "build", "dist"]
 
 [lint]
 select = [
-  "F", "E4", "E7", "E9",  # pyflakes + critical pycodestyle
+  "F", "E4", "E7", "E9",  # pyflakes + critical pycodestyle (includes F401 unused-import, F841 unused-var)
   "B",                    # flake8-bugbear
   "S",                    # flake8-bandit (security)
   "ASYNC",                # blocking calls in async code
   "PERF",                 # perflint
   "UP",                   # pyupgrade
-  "SIM",                  # simplify
+  "SIM",                  # simplify constructs
   "C4",                   # comprehensions
   "DTZ",                  # naive datetime
   "BLE",                  # blind except
   "T20",                  # print in code
-  "PL",                   # pylint
-  "C90",                  # mccabe
+  "PL",                   # pylint (PLR0911/PLR0912/PLR0915 size limits governed by [lint.pylint] below)
+  "C90",                  # mccabe (supporting signal; see [lint.mccabe] comment)
   "RUF",
+  "ARG",                  # unused arguments — dead-code signal; distinct from PLR0913 (too-many-args, suppressed below): ARG flags arguments never read, not their count
+  "ERA001",               # commented-out code — strong AI-slop signal (GitClear 2025/2026: 8× rise in duplicate/dead blocks)
+  "RET505",               # superfluous else-return — dead-path simplification
+  "TRY300",               # prefer try-else over post-try assignment outside the try block
+  "TRY400",               # use logging.exception instead of logging.error in except blocks
 ]
 ignore = [
   "PLR0913",  # too-many-arguments — too noisy as a baseline
@@ -30,9 +35,9 @@ ignore = [
 "**/conftest.py" = ["S101"]
 
 [lint.mccabe]
-max-complexity = 12
+max-complexity = 12  # supporting signal only; cyclomatic complexity alone does not discriminate AI from human code (arXiv:2508.21634, ISSRE 2025, 500k samples)
 
 [lint.pylint]
-max-branches = 12
-max-returns = 6
-max-statements = 50
+max-branches = 12   # supporting signal; structural size metrics are not reliable AI-code discriminators on their own (arXiv:2508.21634)
+max-returns = 6     # supporting signal; see max-branches note above
+max-statements = 50 # supporting signal; see max-branches note above

@@ -1,0 +1,25 @@
+---
+# pylint descriptor template — copy into .slopguard/tools/pylint.yaml
+#   slopguard adopt-config pylint
+#
+# Resolution is project-local: pylint resolves imports through the project's own
+# interpreter, so a plugin-installed copy would report phantom no-member errors.
+#
+# --exit-zero is required, not a weakened threshold: pylint encodes its result as
+# a bitmask (1 fatal, 2 error, 4 warning, 8 refactor, 16 convention) and the
+# descriptor runner discards output from any exit code other than 0 or 1, so a
+# warning-only run would be silently dropped. Severity is decided by
+# rules/mapping/pylint.yaml, never by pylint's exit status.
+name: pylint
+tier: fast
+match:
+  globs: ["**/*.py"]
+  stacks: ["python"]
+resolve:
+  project: [".venv/bin/pylint", "venv/bin/pylint", ".tox/py/bin/pylint"]
+run:
+  args: ["--output-format=json2", "--score=n", "--exit-zero", "{file}"]
+  timeout: 30
+parse:
+  format: json
+  jq: '.messages[] | {rule: .symbol, message: .message, line: .line}'

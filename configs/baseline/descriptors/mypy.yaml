@@ -1,0 +1,25 @@
+---
+# mypy descriptor template — copy into .slopguard/tools/mypy.yaml
+#   slopguard adopt-config mypy
+#
+# The plugin pins nothing here: mypy only sees a project's real types when it
+# runs from that project's own environment, so resolution is project-local and
+# the tool simply stays absent where the venv has no mypy.
+#
+# Settings come from the project's own [tool.mypy] section; this descriptor adds
+# only output shaping. --follow-imports=silent keeps imported modules typed
+# while reporting errors in the edited file alone — the diff filter would drop
+# the rest anyway, and following them is what makes per-file mypy slow.
+name: mypy
+tier: fast
+match:
+  globs: ["**/*.py"]
+  stacks: ["python"]
+resolve:
+  project: [".venv/bin/mypy", "venv/bin/mypy", ".tox/py/bin/mypy"]
+run:
+  args: ["--output=json", "--no-error-summary", "--no-color-output", "--follow-imports=silent", "{file}"]
+  timeout: 30
+parse:
+  format: json
+  jq: 'select(.severity == "error") | {rule: (.code // "error"), message: .message, line: .line}'

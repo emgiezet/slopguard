@@ -458,7 +458,9 @@ po2_out="${TEST_WORK}/po2-output.txt"
     export CLAUDE_PROJECT_DIR="$EMPTY_PROJECT_DIR"
     export CLAUDE_PLUGIN_OPTION_TOOL_SOURCE="project-only"
     export CLAUDE_PLUGIN_ROOT="$PLUGIN_ROOT"
-    "${PLUGIN_ROOT}/bin/slopguard" doctor --install 2>/dev/null
+    # --all: this check is about install precedence, not stack scoping, and the
+    # synthetic lockfile's tool belongs to no stack.
+    "${PLUGIN_ROOT}/bin/slopguard" doctor --install --all 2>/dev/null
 ) > "$po2_out" 2>&1
 
 if grep -qF "higher-priority binary" "$po2_out"; then

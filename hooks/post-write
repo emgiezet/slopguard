@@ -149,6 +149,10 @@ while IFS= read -r ap_id_entry; do
         AP-SQL-*)  skill_name="sql-antipatterns" ;;
         *)         skill_name="${lang_prefix}-antipatterns" ;;
     esac
+    # Bucket ids such as AP-PY-LINT-000 group tool rules that the catalog does
+    # not describe; they have no reference page, and pointing the agent at a
+    # file that does not exist costs it a wasted read.
+    [ -f "${PLUGIN_ROOT}/skills/${skill_name}/reference/${ap_id_entry}.md" ] || continue
     details_lines="${details_lines}Details: skills ${skill_name}/reference/${ap_id_entry}.md\n"
 done <<< "$unique_ap_ids"
 

@@ -849,6 +849,11 @@ dispatch_fast() {
 # Per-tool timeout for medium-tier tools (default 45 s).
 _dispatch_medium_timeout() { printf '%s' "${SLOPGUARD_MEDIUM_TOOL_TIMEOUT:-45}"; }
 
+# _dispatch_jscpd_cooldown
+# Seconds before re-scanning a directory after the previous scan (default 60).
+# Honour SLOPGUARD_JSCPD_DIR_COOLDOWN to shorten the window in tests.
+_dispatch_jscpd_cooldown() { printf '%s' "${SLOPGUARD_JSCPD_DIR_COOLDOWN:-60}"; }
+
 # _dispatch_medium_pending_key <session_id> <agent_id> <file>
 # Print the path to the debounce token file for this file.
 _dispatch_medium_pending_key() {
@@ -1289,6 +1294,161 @@ _dispatch_run_opengrep() {
         2>/dev/null || true)"
 }
 
+# _dispatch_run_jscpd  file session_id agent_id project_dir
+#                       is_untracked changed_ranges findings_out
+# Scans the directory of the changed file for duplicate code blocks.
+# Cooldown-gated per directory: once scanned, the directory is not rescanned
+# until SLOPGUARD_JSCPD_DIR_COOLDOWN seconds have elapsed (default 60).
+# Re-emission of an unchanged finding is already prevented by
+# _dispatch_fingerprint_seen; the cooldown is a CPU guard, not deduplication.
+# Emits through _dispatch_filter_emit (diff filter only) rather than
+# _dispatch_config_filter_emit because duplication is an objective measurement
+# and the security overlay would silently drop every maintainability finding.
+_dispatch_run_jscpd() {
+    local file="$1" session_id="$2" agent_id="$3" project_dir="$4"
+    local is_untracked="$5" changed_ranges="$6" findings_out="$7"
+
+    local tool_bin; tool_bin="$(CLAUDE_PROJECT_DIR="$project_dir" resolve_tool jscpd 2>/dev/null || true)"
+    if [ -z "$tool_bin" ]; then
+        if ! _dispatch_tool_unavail_seen "$session_id" "$agent_id" jscpd; then
+            _dispatch_tool_unavail_mark "$session_id" "$agent_id" jscpd
+            printf 'slopguard: jscpd unavailable — run: slopguard doctor --install\n' >&2
+        fi
+        return 0
+    fi
+
+    local config_mode; config_mode="$(tool_config_mode jscpd "$project_dir")"
+    [ "$config_mode" = "skip" ] && return 0
+
+    # Scope: directory of the changed file.  Duplication is cross-file; scanning
+    # a single file only detects intra-file clones.
+    local dir; dir="$(dirname "$file")"
+
+    # Cooldown gate: read the marker's mtime; re-scan only when the marker is
+    # older than the cooldown window.  _dispatch_fingerprint_seen already prevents
+    # re-emitting an unchanged finding; the cooldown is a CPU guard only.
+    local cooldown; cooldown="$(_dispatch_jscpd_cooldown)"
+    local dir_hash; dir_hash="$(_dispatch_sha256 "$dir" 2>/dev/null | head -c16 || printf 'nohash')"
+    local state_d; state_d="$(state_dir "$session_id" "$agent_id")"
+    local dir_mark="${state_d}/.jscpd-dir-${dir_hash}"
+    mkdir -p "$state_d"
+    if [ -f "$dir_mark" ]; then
+        local mark_time now_time mark_age
+        # GNU then BSD, matching state.sh: macOS stat has no -c.
+        mark_time="$(stat -c %Y "$dir_mark" 2>/dev/null \
+            || stat -f %m "$dir_mark" 2>/dev/null || printf '0')"
+        now_time="$(date +%s)"
+        mark_age=$(( now_time - mark_time ))
+        [ "$mark_age" -lt "$cooldown" ] && return 0
+    fi
+    : > "$dir_mark"
+
+    local config; config="$(tool_config_path jscpd "$project_dir")"
+
+    local outdir; outdir="$(mktemp -d 2>/dev/null || true)"
+    [ -n "$outdir" ] || return 0
+
+    local exit_code=0
+    if [ -f "$config" ] && [ -r "$config" ]; then
+        timeout "$(_dispatch_medium_timeout)" \
+            "$tool_bin" --reporters json --output "$outdir" --config "$config" \
+            "$dir" >/dev/null 2>&1 || exit_code=$?
+    else
+        timeout "$(_dispatch_medium_timeout)" \
+            "$tool_bin" --reporters json --output "$outdir" \
+            "$dir" >/dev/null 2>&1 || exit_code=$?
+    fi
+
+    if [ "$exit_code" -ne 0 ] && [ "$exit_code" -ne 1 ]; then
+        rm -rf "$outdir" 2>/dev/null || true
+        return 0
+    fi
+
+    local report="${outdir}/jscpd-report.json"
+    if [ ! -f "$report" ]; then
+        rm -rf "$outdir" 2>/dev/null || true
+        return 0
+    fi
+
+    local mapping="${CLAUDE_PLUGIN_ROOT}/rules/mapping/jscpd.yaml"
+
+    # jscpd reports file names relative to the scanned directory ($dir).
+    # Empirically verified with jscpd 5.3.2: name is always relative to the
+    # directory argument, regardless of whether that argument is absolute or
+    # relative and regardless of the process working directory.
+    #
+    # For each clone pair: emit the occurrence in $file (the file that triggered
+    # this dispatch) and name the other occurrence in the message.  Skip the pair
+    # when neither side is $file — that is pre-existing duplication elsewhere in
+    # the directory, not something this edit introduced, and reporting it would
+    # blame the agent for code it did not touch.  When both sides are $file
+    # (intra-file clone), emit once at the second (later) occurrence.
+    local file_canon; file_canon="$(realpath "$file" 2>/dev/null || printf '%s' "$file")"
+    local first_name first_start first_end second_name second_start second_end dup_lines dup_tokens
+    local ap_id severity category cwe_str cwe_json fix snippet lookup msg
+    local first_abs second_abs first_canon second_canon emit_file other_file emit_start emit_end other_start
+
+    while IFS=$'\t' read -r first_name first_start first_end second_name second_start second_end dup_lines dup_tokens; do
+        [ -n "$first_name" ] || continue
+        first_abs="${dir}/${first_name}"
+        second_abs="${dir}/${second_name}"
+        first_canon="$(realpath "$first_abs" 2>/dev/null || printf '%s' "$first_abs")"
+        second_canon="$(realpath "$second_abs" 2>/dev/null || printf '%s' "$second_abs")"
+
+        if [ "$first_canon" = "$file_canon" ] && [ "$second_canon" = "$file_canon" ]; then
+            # Intra-file clone: emit at the second (later) occurrence.
+            emit_file="$file"
+            emit_start="$second_start"
+            emit_end="$second_end"
+            other_file="$file"
+            other_start="$first_start"
+        elif [ "$first_canon" = "$file_canon" ]; then
+            # Changed file is the original (firstFile): emit here, name the duplicate.
+            emit_file="$file"
+            emit_start="$first_start"
+            emit_end="$first_end"
+            other_file="$second_abs"
+            other_start="$second_start"
+        elif [ "$second_canon" = "$file_canon" ]; then
+            # Changed file is the duplicate (secondFile): emit here, name the original.
+            emit_file="$file"
+            emit_start="$second_start"
+            emit_end="$second_end"
+            other_file="$first_abs"
+            other_start="$first_start"
+        else
+            # Neither side is the changed file: pre-existing duplication elsewhere
+            # in the directory, not attributable to this edit.  Skip.
+            continue
+        fi
+
+        msg="duplicate of ${other_file}:${other_start} (${dup_lines} lines, ${dup_tokens} tokens)"
+        snippet="$(printf '%s' "$msg" | head -c 120)"
+        lookup="$(_dispatch_map_lookup "$mapping" "duplicate-block")"
+        if [ -n "$lookup" ]; then
+            IFS=$'\t' read -r ap_id severity category cwe_str <<< "$lookup"
+            cwe_json="$(_dispatch_cwe_json "$cwe_str")"
+        else
+            ap_id="AP-SLOP-DUP-001"
+            category="maintainability"
+            severity="$(_dispatch_default_severity "$category")"
+            cwe_json='[]'
+        fi
+        fix=""
+        _dispatch_filter_emit \
+            "$session_id" "$agent_id" "$ap_id" "jscpd" "duplicate-block" \
+            "$category" "$severity" "$cwe_json" \
+            "$emit_file" "$emit_start" "$emit_end" "$msg" "$fix" "$snippet" \
+            "$is_untracked" "$changed_ranges" "$findings_out"
+    done <<< "$(jq -r '.duplicates[]? |
+            [.firstFile.name, (.firstFile.start | tostring), (.firstFile.end | tostring),
+             .secondFile.name, (.secondFile.start | tostring), (.secondFile.end | tostring),
+             (.lines | tostring), (.tokens | tostring)] | @tsv' \
+        "$report" 2>/dev/null || true)"
+
+    rm -rf "$outdir" 2>/dev/null || true
+}
+
 # --------------------------------------------------------------------------- #
 # Medium-tier tool selection
 # --------------------------------------------------------------------------- #
@@ -1360,6 +1520,13 @@ _dispatch_medium_tools_for_file() {
                 esac
                 ;;
             esac ;;
+    esac
+
+    # Duplication detection (directory-scoped) for all tracked source languages.
+    # jscpd runs once per directory per session/agent (debounced in the runner).
+    case "$ext" in
+        py|js|jsx|mjs|cjs|ts|tsx|mts|cts|go|php|java|kt|kts|cs|rb|rs)
+            case "$tools" in *jscpd*) ;; *) tools="${tools} jscpd" ;; esac ;;
     esac
 
     printf '%s' "${tools# }"

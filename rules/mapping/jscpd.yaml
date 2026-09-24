@@ -1,0 +1,18 @@
+---
+# jscpd rule → AP-id mapping.
+#
+# AP-SLOP-DUP-001 is a bucket id with no catalogue reference page
+# (analogous to AP-CI-LINT-000 and AP-DOCKER-LINT-000); hooks/post-write
+# suppresses the Details: reference line for ids without a matching
+# reference/<id>.md file.
+#
+# duplicate-block is warn rather than error because a duplicate block is a
+# maintainability signal that requires human judgement: the duplication may
+# be intentional (different lifecycle, pending divergence, cross-boundary
+# isolation) and the correct extraction may not be obvious without context.
+rules:
+  duplicate-block:
+    ap_id: AP-SLOP-DUP-001
+    severity: warn
+    category: maintainability
+    cwe: ""

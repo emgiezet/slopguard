@@ -50,6 +50,10 @@ ensure_jq() {
 . "${CLAUDE_PLUGIN_ROOT}/lib/state.sh"
 # shellcheck source=../lib/finding.sh
 . "${CLAUDE_PLUGIN_ROOT}/lib/finding.sh"
+# shellcheck source=../lib/detect.sh
+. "${CLAUDE_PLUGIN_ROOT}/lib/detect.sh"
+# shellcheck source=../lib/config.sh
+. "${CLAUDE_PLUGIN_ROOT}/lib/config.sh"
 
 # Fallback: tool_config_mode is defined in lib/tools.sh (ConfigMode slice).
 # This stub fires only when that slice hasn't landed yet; the contract is identical.
@@ -337,10 +341,11 @@ cmd_deps_check() {
 # --------------------------------------------------------------------------- #
 
 cmd_doctor() {
-    local do_install=0
+    local do_install=0 do_all=0
     while [ $# -gt 0 ]; do
         case "$1" in
             --install) do_install=1; shift ;;
+            --all)     do_all=1; shift ;;
             -*)        die "unknown flag for doctor: $1" ;;
             *)         die "unexpected argument: $1" ;;
         esac
@@ -355,12 +360,38 @@ cmd_doctor() {
     tools_list="$(lock_tools)" || die "lockfile unreadable or malformed: $lock_path"
     [ -n "$tools_list" ] || die "lockfile contains no tools: $lock_path"
 
+    # Scope: only the tools the project's stacks can use, unless --all.  A repo
+    # without Go has nothing to gain from a Go linter, so doctor neither reports
+    # nor installs one.
+    local scope_label="all pinned tools"
+    if [ "$do_all" -eq 0 ]; then
+        config_resolve_stacks "${CLAUDE_PROJECT_DIR:-.}"
+        local relevant_tools; relevant_tools=" $(tools_for_stacks "${SG_STACKS:-}") "
+        local scoped_list=""
+        while IFS= read -r tool; do
+            case "$relevant_tools" in
+                *" ${tool} "*) scoped_list="${scoped_list}${tool}"$'\n' ;;
+            esac
+        done <<< "$tools_list"
+        tools_list="${scoped_list%$'\n'}"
+        scope_label="stacks: ${SG_STACKS:-none} (use --all for every pinned tool)"
+        if [ -z "$tools_list" ]; then
+            say "slopguard doctor — plugin: ${CLAUDE_PLUGIN_ROOT}  data: ${CLAUDE_PLUGIN_DATA}"
+            say "scope: ${scope_label}"
+            say ""
+            say "No pinned tool applies to this project's stacks."
+            return 0
+        fi
+    fi
+
     say "slopguard doctor — plugin: ${CLAUDE_PLUGIN_ROOT}  data: ${CLAUDE_PLUGIN_DATA}"
+    say "scope: ${scope_label}"
     say ""
 
     local fail_count=0
 
     while IFS= read -r tool; do
+        [ -n "$tool" ] || continue
         local expected_version; expected_version="$(lock_version "$tool")"
         local refresh_attempted=0 refresh_failed=0
         if [ "$do_install" -eq 1 ] \
@@ -530,6 +561,7 @@ _adopt_dest() {
         eslint-stack)  printf '%s/eslint.config.mjs'  "$_ad_dir" ;;
         golangci-lint) printf '%s/.golangci.yml'      "$_ad_dir" ;;
         hadolint)      printf '%s/.hadolint.yaml'     "$_ad_dir" ;;
+        jscpd)         printf '%s/.jscpd.json'        "$_ad_dir" ;;
         kube-linter)   printf '%s/.kube-linter.yaml'  "$_ad_dir" ;;
         phpstan)       printf '%s/phpstan.neon'       "$_ad_dir" ;;
         psalm)         printf '%s/psalm.xml'          "$_ad_dir" ;;
@@ -538,6 +570,30 @@ _adopt_dest() {
         zizmor)        printf '%s/zizmor.yml'         "$_ad_dir" ;;
         *)             printf '' ;;
     esac
+}
+
+# _adopt_ext_dir <project_dir>
+# Prints the directory that holds project tool descriptors.
+_adopt_ext_dir() {
+    local _ae_lib="${SLOPGUARD_EXT_SH:-${CLAUDE_PLUGIN_ROOT}/lib/ext.sh}"
+    if ! declare -F ext_dir >/dev/null 2>&1 && [ -f "$_ae_lib" ]; then
+        # shellcheck disable=SC1090  # path is resolved above, not a literal
+        . "$_ae_lib"
+    fi
+    if declare -F ext_dir >/dev/null 2>&1; then
+        printf '%s/tools' "$(ext_dir "$1")"
+    else
+        printf '%s/.slopguard/tools' "$1"
+    fi
+}
+
+# _adopt_descriptor_template <name>
+# Prints the shipped descriptor template for <name>, or nothing when the plugin
+# ships none.  Descriptors cover analyzers the plugin deliberately does not pin
+# because they only work from the project's own environment.
+_adopt_descriptor_template() {
+    local _at_path="${CLAUDE_PLUGIN_ROOT}/configs/baseline/descriptors/${1}.yaml"
+    [ -f "$_at_path" ] && printf '%s' "$_at_path"
 }
 
 cmd_adopt_config() {
@@ -556,12 +612,35 @@ cmd_adopt_config() {
             _ac_found=1
             printf '  %-20s  %s\n' "$_ac_t" "$_ac_path"
         done <<< "$(lock_tools)"
+        local _ac_desc_dir; _ac_desc_dir="$(_adopt_ext_dir "$project_dir")"
+        local _ac_tpl _ac_tpl_name
+        for _ac_tpl in "${CLAUDE_PLUGIN_ROOT}"/configs/baseline/descriptors/*.yaml; do
+            [ -f "$_ac_tpl" ] || continue
+            _ac_tpl_name="${_ac_tpl##*/}"; _ac_tpl_name="${_ac_tpl_name%.yaml}"
+            [ -f "${_ac_desc_dir}/${_ac_tpl_name}.yaml" ] && continue
+            _ac_found=1
+            printf '  %-20s  %s  (project-local descriptor)\n' "$_ac_tpl_name" "$_ac_tpl"
+        done
         if [ "$_ac_found" -eq 0 ]; then
             say "All tools have project configs — nothing to adopt."
         else
             say ""
             say "Run: slopguard adopt-config <tool>  to copy a baseline into your project."
         fi
+        return 0
+    fi
+
+    # Descriptor templates are adopted into .slopguard/tools/, not as a config.
+    local _desc_tpl; _desc_tpl="$(_adopt_descriptor_template "$tool")"
+    if [ -n "$_desc_tpl" ]; then
+        local _desc_dir; _desc_dir="$(_adopt_ext_dir "$project_dir")"
+        local _desc_dest="${_desc_dir}/${tool}.yaml"
+        [ -f "$_desc_dest" ] && die "descriptor already exists: ${_desc_dest}"
+        mkdir -p "$_desc_dir" || die "failed to create ${_desc_dir}"
+        cp "$_desc_tpl" "$_desc_dest" || die "failed to copy ${_desc_tpl} → ${_desc_dest}"
+        say "${_desc_dest}"
+        say "${tool}: resolved from the project's own environment — slopguard installs nothing for it."
+        say "Confirm it resolves:  slopguard doctor"
         return 0
     fi
 
@@ -614,8 +693,9 @@ cmd_help() {
     cat <<USAGE
 slopguard ${VERSION} — anti-pattern detection and gate for agent-written code.
 
-  slopguard doctor             report tool status (installs nothing)
-  slopguard doctor --install   install or update pinned tools
+  slopguard doctor             report tool status for the project's stacks
+  slopguard doctor --install   install or update the tools those stacks need
+  slopguard doctor --all       widen either command to every pinned tool
   slopguard adopt-config       list tools without a project config
   slopguard adopt-config <t>   copy the baseline config for <t> into the project
   slopguard note-docs          record a Context7 lookup (reads hook JSON on stdin)

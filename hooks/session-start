@@ -67,41 +67,55 @@ main() {
     fi
 
     local _sdir _tools_json tool resolved source version expected matches plugin_prefix
-    local config_path config_source config_mode
+    local config_path config_source config_mode relevant
     local -a _missing_tools=()
     _sdir="$(state_dir "$SESSION_ID" "${AGENT_ID:-}")"
     _tools_json='[]'
+    # Tools this project can actually use: core plus the detected stacks' own.
+    # Everything else is inventoried as not-applicable and never probed — a Go
+    # linter is not "missing" from a repository that holds no Go.
+    local _relevant_tools
+    _relevant_tools=" $(tools_for_stacks "${SG_STACKS:-}") "
     while IFS= read -r tool; do
         expected="$(lock_version "$tool")"
-        resolved="$(resolve_tool "$tool")"
-        source="missing"
-        version=""
-        matches=false
         config_path="$(tool_config_path "$tool" "$_d")"
         config_source="$(tool_config_source "$config_path")"
         config_mode="$(tool_config_mode "$tool" "$_d")"
-        if [ -n "$resolved" ]; then
-            plugin_prefix="${CLAUDE_PLUGIN_DATA}/tools/"
-            case "$resolved" in
-                "${plugin_prefix}"*) source="plugin" ;;
-                */vendor/bin/*|*/node_modules/.bin/*|*/.venv/bin/*) source="project" ;;
-                "${_d}"/*) source="project" ;;
-                *) source="PATH" ;;
-            esac
-            version="$(tool_version_output "$tool" "$resolved" | head -1 || true)"
-            tool_version_matches "$tool" "$resolved" && matches=true
+        resolved=""
+        source="not-applicable"
+        version=""
+        matches=false
+        relevant=false
+        case "$_relevant_tools" in
+            *" ${tool} "*) relevant=true ;;
+        esac
+        if [ "$relevant" = true ]; then
+            resolved="$(resolve_tool "$tool")"
+            source="missing"
+            if [ -n "$resolved" ]; then
+                plugin_prefix="${CLAUDE_PLUGIN_DATA}/tools/"
+                case "$resolved" in
+                    "${plugin_prefix}"*) source="plugin" ;;
+                    */vendor/bin/*|*/node_modules/.bin/*|*/.venv/bin/*) source="project" ;;
+                    "${_d}"/*) source="project" ;;
+                    *) source="PATH" ;;
+                esac
+                version="$(tool_version_output "$tool" "$resolved" | head -1 || true)"
+                tool_version_matches "$tool" "$resolved" && matches=true
+            else
+                _missing_tools+=("$tool")
+            fi
         fi
-        [ -n "$resolved" ] || _missing_tools+=("$tool")
         _tools_json="$(jq -c \
             --arg tool "$tool" --arg source "$source" --arg path "$resolved" \
             --arg version "$version" --arg expected "$expected" \
             --arg config_path "$config_path" --arg config_source "$config_source" \
             --arg config_mode "$config_mode" \
-            --argjson matches "$matches" \
+            --argjson matches "$matches" --argjson relevant "$relevant" \
             '. + [{name:$tool,source:$source,path:$path,version:$version,
                     expected_version:$expected,version_matches:$matches,
                     config_path:$config_path,config_source:$config_source,
-                    config_mode:$config_mode}]' \
+                    config_mode:$config_mode,relevant:$relevant}]' \
             <<< "$_tools_json")"
     done < <(lock_tools)
 
@@ -207,11 +221,14 @@ main() {
 
     # Compute overlay summary and config_modes map from the completed _tools_json.
     # Only "overlay" mode is reported — "full" and "skip" are deliberate knob choices.
+    # Tools the project's stacks never reach are excluded: their config mode is
+    # academic and counting them made every project look unconfigured.
     local _overlay_count _overlay_example _config_modes
-    _overlay_count="$(jq '[.[] | select(.config_mode=="overlay")] | length' \
+    _overlay_count="$(jq '[.[] | select(.relevant and .config_mode=="overlay")] | length' \
         <<< "$_tools_json" 2>/dev/null || printf '0')"
     _overlay_example="$(jq -r \
-        '([.[] | select(.config_mode=="overlay")] | if length > 0 then .[0].name else "" end)' \
+        '([.[] | select(.relevant and .config_mode=="overlay")]
+          | if length > 0 then .[0].name else "" end)' \
         <<< "$_tools_json" 2>/dev/null || true)"
     _config_modes="$(jq -c '[.[] | {key:.name,value:.config_mode}] | from_entries' \
         <<< "$_tools_json" 2>/dev/null || printf '{}')"
@@ -241,7 +258,7 @@ main() {
     if [ "${#_missing_tools[@]}" -gt 0 ] && [ ! -f "$_missing_marker" ]; then
         local _missing_list
         _missing_list="$(IFS=', '; printf '%s' "${_missing_tools[*]}")"
-        printf 'slop-guard: missing tools: %s. Install: %s/bin/slopguard doctor --install\n' \
+        printf 'slop-guard: missing tools for this project: %s. Install: %s/bin/slopguard doctor --install\n' \
             "$_missing_list" "${CLAUDE_PLUGIN_ROOT}"
         : > "$_missing_marker"
     fi

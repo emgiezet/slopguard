@@ -117,6 +117,7 @@ _mt_mapping_ok "eslint-t"    "${PLUGIN_ROOT}/rules/mapping/eslint-typed.yaml"  "
 _mt_mapping_ok "tflint"      "${PLUGIN_ROOT}/rules/mapping/tflint.yaml"        "terraform_deprecated_interpolation"      "AP-TF-MAINT-001"  "warn"
 _mt_mapping_ok "checkov"     "${PLUGIN_ROOT}/rules/mapping/checkov.yaml"       "CKV_AWS_57"                              "AP-TF-SEC-010"    "blocker"
 _mt_mapping_ok "checkov-k8s" "${PLUGIN_ROOT}/rules/mapping/checkov.yaml"       "CKV_K8S_1"                               "AP-K8S-010"       "blocker"
+_mt_mapping_ok "jscpd"    "${PLUGIN_ROOT}/rules/mapping/jscpd.yaml"        "duplicate-block"                         "AP-SLOP-DUP-001"  "warn"
 
 # --------------------------------------------------------------------------- #
 # 2. Tool routing — _dispatch_medium_tools_for_file
@@ -148,6 +149,43 @@ esac
 case "$_mt_tools_tf" in
     *checkov*) ok "medium: .tf also routes to checkov" ;;
     *)         bad "medium: .tf checkov routing" "expected checkov, got: ${_mt_tools_tf}" ;;
+esac
+
+_mt_tools_jscpd_py="$(_dispatch_medium_tools_for_file "model.py")"
+case "$_mt_tools_jscpd_py" in
+    *jscpd*) ok "medium: .py routes to jscpd at medium tier" ;;
+    *)       bad "medium: .py → jscpd routing" "expected jscpd, got: ${_mt_tools_jscpd_py}" ;;
+esac
+
+_mt_tools_jscpd_go="$(_dispatch_medium_tools_for_file "server.go")"
+case "$_mt_tools_jscpd_go" in
+    *jscpd*) ok "medium: .go routes to jscpd at medium tier" ;;
+    *)       bad "medium: .go → jscpd routing" "expected jscpd, got: ${_mt_tools_jscpd_go}" ;;
+esac
+
+_mt_tools_jscpd_rb="$(_dispatch_medium_tools_for_file "helper.rb")"
+case "$_mt_tools_jscpd_rb" in
+    *jscpd*) ok "medium: .rb routes to jscpd at medium tier" ;;
+    *)       bad "medium: .rb → jscpd routing" "expected jscpd, got: ${_mt_tools_jscpd_rb}" ;;
+esac
+
+_mt_tools_jscpd_rs="$(_dispatch_medium_tools_for_file "lib.rs")"
+case "$_mt_tools_jscpd_rs" in
+    *jscpd*) ok "medium: .rs routes to jscpd at medium tier" ;;
+    *)       bad "medium: .rs → jscpd routing" "expected jscpd, got: ${_mt_tools_jscpd_rs}" ;;
+esac
+
+# .tf must not route to jscpd (infrastructure files are not source code clones)
+case "$_mt_tools_tf" in
+    *jscpd*) bad "medium: .tf must not route to jscpd" "got: ${_mt_tools_tf}" ;;
+    *)       ok  "medium: .tf does not route to jscpd" ;;
+esac
+
+# Fast tier (_dispatch_tools_for_file) must never include jscpd
+_mt_fast_tools_py="$(_dispatch_tools_for_file "model.py")"
+case "$_mt_fast_tools_py" in
+    *jscpd*) bad "medium: fast tier must not return jscpd for .py" "got: ${_mt_fast_tools_py}" ;;
+    *)       ok  "medium: fast tier does not return jscpd for .py" ;;
 esac
 
 # --------------------------------------------------------------------------- #
@@ -367,3 +405,234 @@ grep -q 'medium tier' "$_mt_e2e_stderr" \
 grep -q 'AP-PHP-MAINT-001' "$_mt_e2e_stderr" \
     && ok "medium: e2e: AP-id AP-PHP-MAINT-001 present" \
     || bad "medium: e2e AP-id" "stderr: $(cat "$_mt_e2e_stderr" | head -5)"
+
+# --------------------------------------------------------------------------- #
+# 9. jscpd end-to-end: stub binary produces AP-SLOP-DUP-001 finding
+# --------------------------------------------------------------------------- #
+# Verifies that _dispatch_run_jscpd routes through the mapping file and emits
+# a finding with ap_id=AP-SLOP-DUP-001 and tool_rule=duplicate-block.
+#
+# The stub writes jscpd-shaped JSON (shape from §5.2 of
+# docs/research/code-smell-tooling.md) to the --output directory argument and
+# also to stdout so it is compatible with both file-based and stdout runners.
+
+_mt_jscpd_repo="${_MT_WORK}/repo-jscpd"
+_mt_make_git_repo "$_mt_jscpd_repo"
+# Two Python files in the same directory with identical function bodies.
+printf 'def compute(x, y):\n    result = x + y\n    result = result * 2\n    result = result - 1\n    return result\n' \
+    > "${_mt_jscpd_repo}/a.py"
+printf 'def compute(x, y):\n    result = x + y\n    result = result * 2\n    result = result - 1\n    return result\n' \
+    > "${_mt_jscpd_repo}/b.py"
+
+# JSON payload in the shape jscpd 5.3.2 emits (§5.2 of code-smell-tooling.md).
+_mt_jscpd_json='{"duplicates":[{"firstFile":{"end":5,"endLoc":{"column":16,"line":5,"position":78},"name":"a.py","start":1,"startLoc":{"column":0,"line":1,"position":0}},"format":"python","fragment":"def compute(x, y):","isNew":true,"kind":"exact","lines":5,"secondFile":{"end":5,"endLoc":{"column":16,"line":5,"position":78},"name":"b.py","start":1,"startLoc":{"column":0,"line":1,"position":0}},"tokens":22}],"statistics":{"detectionDate":"2026-09-24T00:00:00.000Z","formats":{"python":{"clones":1,"duplicatedLines":5,"duplicatedTokens":22,"lines":10,"percentage":50.0}},"total":{"clones":1,"duplicatedLines":5,"duplicatedTokens":22,"lines":10,"percentage":50.0}}}'
+
+# Stub handles --output <dir> (file-based runner) and also prints to stdout.
+_mt_jscpd_data="${_mt_jscpd_repo}/vendor/bin/.stub-data-jscpd"
+mkdir -p "${_mt_jscpd_repo}/vendor/bin"
+printf '%s' "$_mt_jscpd_json" > "$_mt_jscpd_data"
+{   printf '#!/bin/sh\n'
+    printf '_d=""; _p=""\n'
+    printf 'for _a in "$@"; do\n'
+    printf '  case "$_p" in --output) _d="$_a" ;; esac; _p="$_a"\n'
+    printf 'done\n'
+    printf '[ -n "$_d" ] && mkdir -p "$_d" && cat "%s" > "${_d}/jscpd-report.json"\n' \
+        "$_mt_jscpd_data"
+    printf 'cat "%s"\n' "$_mt_jscpd_data"
+} > "${_mt_jscpd_repo}/vendor/bin/jscpd"
+chmod +x "${_mt_jscpd_repo}/vendor/bin/jscpd"
+
+_mt_sess_jscpd="mt-jscpd-$$"
+_mt_jscpd_findings="$(mktemp "${_MT_WORK}/.mt-jscpd-out.XXXXXX")"
+(
+    CLAUDE_PROJECT_DIR="$_mt_jscpd_repo" \
+    SLOPGUARD_MEDIUM_DEBOUNCE=0 \
+    dispatch_medium "${_mt_jscpd_repo}/a.py" "$_mt_sess_jscpd" "" \
+        "$_mt_jscpd_repo" "$_mt_jscpd_findings"
+) 2>/dev/null
+
+_mt_jscpd_n=0
+[ -s "$_mt_jscpd_findings" ] && \
+    _mt_jscpd_n="$(wc -l < "$_mt_jscpd_findings" | tr -d ' ')"
+[ "$_mt_jscpd_n" -ge 1 ] \
+    && ok "medium: jscpd e2e: at least one finding emitted" \
+    || bad "medium: jscpd e2e: finding count" "expected >=1, got ${_mt_jscpd_n}"
+
+grep -q '"AP-SLOP-DUP-001"' "$_mt_jscpd_findings" \
+    && ok "medium: jscpd e2e: ap_id AP-SLOP-DUP-001 present in finding" \
+    || bad "medium: jscpd e2e: AP-SLOP-DUP-001" \
+       "finding: $(head -1 "$_mt_jscpd_findings" 2>/dev/null)"
+
+grep -q '"duplicate-block"' "$_mt_jscpd_findings" \
+    && ok "medium: jscpd e2e: tool_rule duplicate-block present in finding" \
+    || bad "medium: jscpd e2e: tool_rule" \
+       "finding: $(head -1 "$_mt_jscpd_findings" 2>/dev/null)"
+
+# --------------------------------------------------------------------------- #
+# 10. jscpd directory dedup: second file in same dir adds no new findings
+# --------------------------------------------------------------------------- #
+# Running the medium dispatcher on b.py (same directory, same session) must
+# not produce new findings — the runner deduplicates by directory or the
+# fingerprint gate suppresses the already-seen clones.  Assert on count only.
+
+(
+    CLAUDE_PROJECT_DIR="$_mt_jscpd_repo" \
+    SLOPGUARD_MEDIUM_DEBOUNCE=0 \
+    dispatch_medium "${_mt_jscpd_repo}/b.py" "$_mt_sess_jscpd" "" \
+        "$_mt_jscpd_repo" "$_mt_jscpd_findings"
+) 2>/dev/null
+
+_mt_jscpd_n2=0
+[ -s "$_mt_jscpd_findings" ] && \
+    _mt_jscpd_n2="$(wc -l < "$_mt_jscpd_findings" | tr -d ' ')"
+[ "$_mt_jscpd_n2" -eq "$_mt_jscpd_n" ] \
+    && ok "medium: jscpd dedup: second file in same dir adds no new findings" \
+    || bad "medium: jscpd dedup" \
+       "expected ${_mt_jscpd_n} findings, got ${_mt_jscpd_n2} after second dispatch"
+
+# --------------------------------------------------------------------------- #
+# 11. jscpd file attribution: changed file is firstFile → emit at firstFile
+# --------------------------------------------------------------------------- #
+# When $file matches firstFile in a clone pair the finding must be attributed
+# to $file, not to secondFile.  The message must name the sibling (secondFile).
+# Uses a fresh session to avoid the cooldown marker from section 9.
+
+_mt_sess_jscpd_ff="mt-jscpd-ff-$$"
+_mt_ff_findings="$(mktemp "${_MT_WORK}/.mt-ff.XXXXXX")"
+(
+    CLAUDE_PROJECT_DIR="$_mt_jscpd_repo" \
+    SLOPGUARD_MEDIUM_DEBOUNCE=0 \
+    dispatch_medium "${_mt_jscpd_repo}/a.py" "$_mt_sess_jscpd_ff" "" \
+        "$_mt_jscpd_repo" "$_mt_ff_findings"
+) 2>/dev/null
+
+# Finding file field must be a.py (the dispatched file / firstFile), not b.py.
+grep -q "\"${_mt_jscpd_repo}/a.py\"" "$_mt_ff_findings" \
+    && ok "jscpd: firstFile case: finding attributed to changed file (a.py)" \
+    || bad "jscpd: firstFile case: file attribution" \
+       "finding: $(head -1 "$_mt_ff_findings" 2>/dev/null)"
+
+# Message must name b.py (the sibling / secondFile).
+grep -q 'b\.py' "$_mt_ff_findings" \
+    && ok "jscpd: firstFile case: message names sibling (b.py)" \
+    || bad "jscpd: firstFile case: message sibling" \
+       "finding: $(head -1 "$_mt_ff_findings" 2>/dev/null)"
+
+# --------------------------------------------------------------------------- #
+# 12. jscpd neither-side: pair unrelated to changed file emits nothing
+# --------------------------------------------------------------------------- #
+# When jscpd finds a clone between two siblings (x.py ↔ y.py) but the
+# dispatched file (a.py) appears in neither position, no finding is emitted.
+
+_mt_jscpd_neither_repo="${_MT_WORK}/repo-jscpd-neither"
+_mt_make_git_repo "$_mt_jscpd_neither_repo"
+printf 'def compute(x):\n    pass\n' > "${_mt_jscpd_neither_repo}/a.py"
+
+# Stub reports a clone between x.py and y.py — neither is the dispatched a.py.
+_mt_neither_json='{"duplicates":[{"firstFile":{"end":5,"endLoc":{"column":0,"line":5,"position":78},"name":"x.py","start":1,"startLoc":{"column":0,"line":1,"position":0}},"format":"python","fragment":"def compute(x, y):","isNew":true,"kind":"exact","lines":5,"secondFile":{"end":5,"endLoc":{"column":0,"line":5,"position":78},"name":"y.py","start":1,"startLoc":{"column":0,"line":1,"position":0}},"tokens":22}],"statistics":{"total":{"clones":1,"duplicatedLines":5,"duplicatedTokens":22,"lines":10,"percentage":50.0}}}'
+_mt_neither_data="${_mt_jscpd_neither_repo}/vendor/bin/.stub-neither"
+mkdir -p "${_mt_jscpd_neither_repo}/vendor/bin"
+printf '%s' "$_mt_neither_json" > "$_mt_neither_data"
+{   printf '#!/bin/sh\n'
+    printf '_d=""; _p=""\n'
+    printf 'for _a in "$@"; do\n'
+    printf '  case "$_p" in --output) _d="$_a" ;; esac; _p="$_a"\n'
+    printf 'done\n'
+    printf '[ -n "$_d" ] && mkdir -p "$_d" && cat "%s" > "${_d}/jscpd-report.json"\n' \
+        "$_mt_neither_data"
+} > "${_mt_jscpd_neither_repo}/vendor/bin/jscpd"
+chmod +x "${_mt_jscpd_neither_repo}/vendor/bin/jscpd"
+
+_mt_sess_neither="mt-jscpd-neither-$$"
+_mt_neither_findings="$(mktemp "${_MT_WORK}/.mt-neither.XXXXXX")"
+(
+    CLAUDE_PROJECT_DIR="$_mt_jscpd_neither_repo" \
+    SLOPGUARD_MEDIUM_DEBOUNCE=0 \
+    dispatch_medium "${_mt_jscpd_neither_repo}/a.py" "$_mt_sess_neither" "" \
+        "$_mt_jscpd_neither_repo" "$_mt_neither_findings"
+) 2>/dev/null
+
+_mt_neither_n=0
+[ -s "$_mt_neither_findings" ] && \
+    _mt_neither_n="$(wc -l < "$_mt_neither_findings" | tr -d ' ')"
+[ "$_mt_neither_n" -eq 0 ] \
+    && ok "jscpd: neither-side: pair not touching changed file emits nothing" \
+    || bad "jscpd: neither-side: expected 0 findings" \
+       "got ${_mt_neither_n}: $(head -1 "$_mt_neither_findings" 2>/dev/null)"
+
+# --------------------------------------------------------------------------- #
+# 13. jscpd cooldown: fresh marker skips re-scan; aged marker triggers re-scan
+# --------------------------------------------------------------------------- #
+# Tests the SLOPGUARD_JSCPD_DIR_COOLDOWN gate.  Uses a counting stub to detect
+# whether jscpd was actually invoked.  Marker mtime is aged with touch -d to
+# simulate a marker older than the cooldown window.
+
+_mt_jscpd_cd_repo="${_MT_WORK}/repo-jscpd-cd"
+_mt_make_git_repo "$_mt_jscpd_cd_repo"
+printf 'def compute(x, y):\n    result = x + y\n    result = result * 2\n    result = result - 1\n    return result\n' \
+    > "${_mt_jscpd_cd_repo}/a.py"
+printf 'def compute(x, y):\n    result = x + y\n    result = result * 2\n    result = result - 1\n    return result\n' \
+    > "${_mt_jscpd_cd_repo}/b.py"
+
+_mt_cd_counter="${_MT_WORK}/.mt-cd-counter"
+printf '' > "$_mt_cd_counter"
+_mt_cd_data="${_mt_jscpd_cd_repo}/vendor/bin/.stub-cd"
+mkdir -p "${_mt_jscpd_cd_repo}/vendor/bin"
+printf '%s' "$_mt_jscpd_json" > "$_mt_cd_data"
+{   printf '#!/bin/sh\n'
+    printf '_d=""; _p=""\n'
+    printf 'for _a in "$@"; do\n'
+    printf '  case "$_p" in --output) _d="$_a" ;; esac; _p="$_a"\n'
+    printf 'done\n'
+    printf '[ -n "$_d" ] && mkdir -p "$_d" && cat "%s" > "${_d}/jscpd-report.json"\n' "$_mt_cd_data"
+    printf 'printf "x" >> "%s"\n' "$_mt_cd_counter"
+} > "${_mt_jscpd_cd_repo}/vendor/bin/jscpd"
+chmod +x "${_mt_jscpd_cd_repo}/vendor/bin/jscpd"
+
+_mt_sess_cd="mt-jscpd-cd-$$"
+_mt_cd_findings="$(mktemp "${_MT_WORK}/.mt-cd-out.XXXXXX")"
+
+# First dispatch: no marker exists → scan (invocation 1).
+(
+    CLAUDE_PROJECT_DIR="$_mt_jscpd_cd_repo" \
+    SLOPGUARD_MEDIUM_DEBOUNCE=0 \
+    SLOPGUARD_JSCPD_DIR_COOLDOWN=60 \
+    dispatch_medium "${_mt_jscpd_cd_repo}/a.py" "$_mt_sess_cd" "" \
+        "$_mt_jscpd_cd_repo" "$_mt_cd_findings"
+) 2>/dev/null
+
+# Second dispatch immediately after: marker is fresh → skip scan.
+(
+    CLAUDE_PROJECT_DIR="$_mt_jscpd_cd_repo" \
+    SLOPGUARD_MEDIUM_DEBOUNCE=0 \
+    SLOPGUARD_JSCPD_DIR_COOLDOWN=60 \
+    dispatch_medium "${_mt_jscpd_cd_repo}/a.py" "$_mt_sess_cd" "" \
+        "$_mt_jscpd_cd_repo" "$_mt_cd_findings"
+) 2>/dev/null
+
+_mt_cd_n1="$(wc -c < "$_mt_cd_counter" 2>/dev/null | tr -d ' ')"
+[ "${_mt_cd_n1:-0}" -eq 1 ] \
+    && ok "jscpd: cooldown: fresh marker skips re-scan (1 invocation for 2 dispatches)" \
+    || bad "jscpd: cooldown: fresh marker" \
+       "expected 1 invocation, got ${_mt_cd_n1}"
+
+# Age the marker past the cooldown window by resetting its mtime to epoch.
+_mt_cd_dir_hash="$(_dispatch_sha256 "$_mt_jscpd_cd_repo" 2>/dev/null | head -c16 || printf 'nohash')"
+_mt_cd_state_d="$(state_dir "$_mt_sess_cd" "")"
+_mt_cd_dir_mark="${_mt_cd_state_d}/.jscpd-dir-${_mt_cd_dir_hash}"
+[ -f "$_mt_cd_dir_mark" ] && touch -d '1970-01-01' "$_mt_cd_dir_mark"
+
+# Third dispatch: aged marker → cooldown expired → scan again (invocation 2).
+(
+    CLAUDE_PROJECT_DIR="$_mt_jscpd_cd_repo" \
+    SLOPGUARD_MEDIUM_DEBOUNCE=0 \
+    SLOPGUARD_JSCPD_DIR_COOLDOWN=60 \
+    dispatch_medium "${_mt_jscpd_cd_repo}/a.py" "$_mt_sess_cd" "" \
+        "$_mt_jscpd_cd_repo" "$_mt_cd_findings"
+) 2>/dev/null
+
+_mt_cd_n2="$(wc -c < "$_mt_cd_counter" 2>/dev/null | tr -d ' ')"
+[ "${_mt_cd_n2:-0}" -eq 2 ] \
+    && ok "jscpd: cooldown: aged marker triggers re-scan (2nd invocation)" \
+    || bad "jscpd: cooldown: aged marker" \
+       "expected 2 invocations, got ${_mt_cd_n2}"

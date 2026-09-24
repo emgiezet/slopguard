@@ -168,3 +168,49 @@ rules:
     severity: warn
     category: maintainability
     cwe: ""
+  # Dead-code and simplification rules added for AI-slop coverage (arXiv:2508.14727)
+  ARG001:
+    ap_id: AP-PY-LINT-000
+    severity: warn
+    category: maintainability
+    cwe: ""
+  ARG002:
+    ap_id: AP-PY-LINT-000
+    severity: warn
+    category: maintainability
+    cwe: ""
+  ARG003:
+    ap_id: AP-PY-LINT-000
+    severity: warn
+    category: maintainability
+    cwe: ""
+  ARG004:
+    ap_id: AP-PY-LINT-000
+    severity: warn
+    category: maintainability
+    cwe: ""
+  ARG005:
+    ap_id: AP-PY-LINT-000
+    severity: warn
+    category: maintainability
+    cwe: ""
+  ERA001:
+    ap_id: AP-PY-LINT-000
+    severity: warn
+    category: maintainability
+    cwe: ""
+  RET505:
+    ap_id: AP-PY-LINT-000
+    severity: warn
+    category: maintainability
+    cwe: ""
+  TRY300:
+    ap_id: AP-PY-LINT-000
+    severity: warn
+    category: maintainability
+    cwe: ""
+  TRY400:
+    ap_id: AP-PY-LINT-000
+    severity: warn
+    category: maintainability
+    cwe: ""

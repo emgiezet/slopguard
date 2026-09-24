@@ -1,6 +1,7 @@
 {
   "php": {
     "tier": 1,
+    "tools": ["phpstan", "psalm", "opengrep", "jscpd"],
     "anchors": {
       "files": ["composer.json"]
     },
@@ -9,6 +10,7 @@
   },
   "laravel": {
     "tier": 1,
+    "tools": [],
     "requires": "php",
     "anchors": {
       "files": ["artisan"],
@@ -22,6 +24,7 @@
   },
   "symfony": {
     "tier": 1,
+    "tools": [],
     "requires": "php",
     "anchors": {
       "manifest": {
@@ -34,6 +37,7 @@
   },
   "doctrine": {
     "tier": 1,
+    "tools": [],
     "requires": "php",
     "anchors": {
       "manifest": {
@@ -46,6 +50,7 @@
   },
   "go": {
     "tier": 1,
+    "tools": ["golangci-lint", "opengrep", "jscpd"],
     "anchors": {
       "files": ["go.mod"]
     },
@@ -54,6 +59,7 @@
   },
   "python": {
     "tier": 1,
+    "tools": ["ruff", "opengrep", "jscpd"],
     "anchors": {
       "files": ["pyproject.toml", "setup.cfg", "uv.lock", "poetry.lock"],
       "globs": ["requirements*.txt"]
@@ -63,6 +69,7 @@
   },
   "node": {
     "tier": 1,
+    "tools": ["eslint-stack", "opengrep", "jscpd"],
     "anchors": {
       "files": ["package.json"]
     },
@@ -71,6 +78,7 @@
   },
   "typescript": {
     "tier": 1,
+    "tools": ["eslint-stack", "opengrep", "jscpd"],
     "requires": "node",
     "anchors": {
       "files": ["tsconfig.json"]
@@ -80,6 +88,7 @@
   },
   "react": {
     "tier": 1,
+    "tools": [],
     "requires": "node",
     "anchors": {
       "manifest": {
@@ -92,6 +101,7 @@
   },
   "vite": {
     "tier": 1,
+    "tools": [],
     "requires": "node",
     "anchors": {
       "manifest": {
@@ -104,6 +114,7 @@
   },
   "express": {
     "tier": 1,
+    "tools": [],
     "requires": "node",
     "anchors": {
       "manifest": {
@@ -116,6 +127,7 @@
   },
   "terraform": {
     "tier": 1,
+    "tools": ["tflint", "checkov"],
     "anchors": {
       "globs": ["*.tf"]
     },
@@ -125,6 +137,7 @@
   },
   "helm": {
     "tier": 1,
+    "tools": ["kube-linter", "checkov"],
     "implies": ["kubernetes"],
     "anchors": {
       "files": ["Chart.yaml"]
@@ -134,6 +147,7 @@
   },
   "kubernetes": {
     "tier": 1,
+    "tools": ["kube-linter", "checkov"],
     "anchors": {
       "files": ["kustomization.yaml", "kustomization.yml"]
     },
@@ -142,6 +156,7 @@
   },
   "docker": {
     "tier": 1,
+    "tools": ["hadolint", "checkov"],
     "anchors": {
       "files": ["Dockerfile", "docker-compose.yml", "compose.yaml"]
     },
@@ -150,6 +165,7 @@
   },
   "github-actions": {
     "tier": 1,
+    "tools": ["zizmor", "checkov"],
     "anchors": {
       "dirs": [".github/workflows"]
     },
@@ -158,6 +174,7 @@
   },
   "gitlab-ci": {
     "tier": 1,
+    "tools": [],
     "anchors": {
       "files": [".gitlab-ci.yml"]
     },
@@ -166,6 +183,7 @@
   },
   "java": {
     "tier": 2,
+    "tools": ["opengrep", "jscpd"],
     "anchors": {
       "files": ["pom.xml", "build.gradle", "build.gradle.kts"]
     },
@@ -174,6 +192,7 @@
   },
   "kotlin": {
     "tier": 2,
+    "tools": ["opengrep", "jscpd"],
     "anchors": {
       "files": ["build.gradle.kts", "settings.gradle.kts"]
     },
@@ -182,6 +201,7 @@
   },
   "csharp": {
     "tier": 2,
+    "tools": ["opengrep", "jscpd"],
     "anchors": {
       "files": ["Directory.Build.props"],
       "globs": ["*.sln", "*.csproj", "**/*.csproj"]
@@ -191,6 +211,7 @@
   },
   "ruby": {
     "tier": 2,
+    "tools": ["opengrep", "jscpd"],
     "anchors": {
       "files": ["Gemfile", "Gemfile.lock", "config.ru"]
     },
@@ -199,6 +220,7 @@
   },
   "rust": {
     "tier": 2,
+    "tools": ["opengrep", "jscpd"],
     "anchors": {
       "files": ["Cargo.toml"]
     },

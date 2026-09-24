@@ -70,6 +70,7 @@ distributed in this repository and do not affect the licence of this plugin.
 | hadolint | GNU General Public Licence v3 (GPLv3) | <https://github.com/hadolint/hadolint> |
 | Opengrep | GNU Lesser General Public Licence v2.1 (LGPL-2.1) | <https://github.com/opengrep/opengrep> |
 | njsscan (rules) | GNU Lesser General Public Licence v3 (LGPL-3.0) | <https://github.com/ajinabraham/njsscan> |
+| jscpd 5.3.2 | MIT | <https://github.com/kucherenko/jscpd> |
 
 Each binary will be pinned to a specific version and sha256 hash in `tools/tools.lock.json`
 (planned, Task 0.2). A hash mismatch will abort the installation.

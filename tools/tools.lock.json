@@ -99,6 +99,28 @@
       },
       "bin": "jq"
     },
+    "jscpd": {
+      "version": "5.3.2",
+      "bin": "jscpd",
+      "assets": {
+        "linux-amd64": {
+          "url": "https://github.com/kucherenko/jscpd/releases/download/v5.3.2/jscpd-linux-x64-gnu.tar.gz",
+          "sha256": "97259f222ea7f6d51a0f2faa98ed5889430233e0fb8d2c129f23d84aff4b93b2"
+        },
+        "linux-arm64": {
+          "url": "https://github.com/kucherenko/jscpd/releases/download/v5.3.2/jscpd-linux-arm64-gnu.tar.gz",
+          "sha256": "ddf336de86eb7e26632062a01e751417f6579b4422e9156aa3836fdab1d0265d"
+        },
+        "darwin-amd64": {
+          "url": "https://github.com/kucherenko/jscpd/releases/download/v5.3.2/jscpd-darwin-x64.tar.gz",
+          "sha256": "435ae3f0c4d6256ac84199494c45c31fc04ba1165358151c2c1a1b036f1c523d"
+        },
+        "darwin-arm64": {
+          "url": "https://github.com/kucherenko/jscpd/releases/download/v5.3.2/jscpd-darwin-arm64.tar.gz",
+          "sha256": "c629e1d2c7a6c41230a0f3bdd72d5ee69996013527a19eabbb5f0e845249dfbc"
+        }
+      }
+    },
     "kube-linter": {
       "version": "0.8.3",
       "bin": "kube-linter",

@@ -152,3 +152,37 @@ stack_tier() {
         "$SLOPGUARD_STACKS_JSON" 2>/dev/null) || return 1
     printf '%s\n' "$_tier"
 }
+
+# Tools every project needs, whatever its stacks. Each line is prefixed so the
+# tool name never opens the comment: `# shellcheck …` would be read as a
+# ShellCheck directive and fail parsing (SC1073).
+#   - jq: every hook parses its input with it
+#   - betterleaks: secret scanning runs on the raw diff, not on a language
+#   - shellcheck: shell scripts carry no stack anchor of their own
+SLOPGUARD_CORE_TOOLS="betterleaks jq shellcheck"
+
+# stack_tools <tag>
+# Prints the tools <tag> needs, space-separated; nothing for an unknown tag,
+# for a stack that adds no tool of its own, or when stacks.json is unreadable.
+stack_tools() {
+    : "${SLOPGUARD_STACKS_JSON:=${CLAUDE_PLUGIN_ROOT}/rules/stacks.json}"
+    [ -f "$SLOPGUARD_STACKS_JSON" ] || return 0
+    jq -r --arg t "$1" '.[$t].tools // [] | join(" ")' \
+        "$SLOPGUARD_STACKS_JSON" 2>/dev/null || true
+}
+
+# tools_for_stacks [<stacks>]
+# Prints SLOPGUARD_CORE_TOOLS plus the tools of every stack in <stacks> (space-
+# separated), deduplicated, in first-seen order.  A project whose stacks are
+# empty or unknown still gets the core set, so the guard never silently
+# degrades to nothing.
+tools_for_stacks() {
+    local _result="$SLOPGUARD_CORE_TOOLS" _tag _tool
+    # shellcheck disable=SC2086  # deliberate word split of the stack list
+    for _tag in ${1:-}; do
+        for _tool in $(stack_tools "$_tag"); do
+            _result="$(_detect_add "$_result" "$_tool")"
+        done
+    done
+    printf '%s\n' "$_result"
+}

@@ -1,0 +1,103 @@
+---
+# pylint symbol → AP-id mapping for the project-local pylint descriptor
+# (configs/baseline/descriptors/pylint.yaml).
+#
+# Symbols that name an anti-pattern already in rules/catalog.yaml carry its
+# ap_id and inherit its severity. Correctness symbols the catalog does not
+# cover take the bucket id AP-PY-LINT-000; an empty ap_id is not an option,
+# because the dispatch reader splits the mapping row on tabs and would shift
+# severity into its place.
+# Style and metric symbols are deliberately absent: they fall through to the
+# runner default (warn / maintainability) and a project that cares about them
+# silences them in its own pylint config.
+rules:
+  bare-except:
+    ap_id: AP-PY-MAINT-001
+    severity: error
+    category: maintainability
+    cwe: CWE-396
+  broad-exception-caught:
+    ap_id: AP-PY-MAINT-001
+    severity: error
+    category: maintainability
+    cwe: CWE-396
+  broad-exception-raised:
+    ap_id: AP-PY-MAINT-001
+    severity: warn
+    category: maintainability
+    cwe: CWE-396
+  dangerous-default-value:
+    ap_id: AP-PY-MAINT-002
+    severity: error
+    category: maintainability
+    cwe: ""
+  eval-used:
+    ap_id: AP-PY-SEC-007
+    severity: blocker
+    category: security
+    cwe: CWE-95
+  exec-used:
+    ap_id: AP-PY-SEC-007
+    severity: blocker
+    category: security
+    cwe: CWE-95
+  subprocess-popen-preexec-fn:
+    ap_id: AP-PY-SEC-002
+    severity: error
+    category: security
+    cwe: CWE-78
+  subprocess-run-check:
+    ap_id: AP-PY-LINT-000
+    severity: warn
+    category: maintainability
+    cwe: ""
+  undefined-variable:
+    ap_id: AP-PY-LINT-000
+    severity: error
+    category: maintainability
+    cwe: ""
+  used-before-assignment:
+    ap_id: AP-PY-LINT-000
+    severity: error
+    category: maintainability
+    cwe: ""
+  no-member:
+    ap_id: AP-PY-LINT-000
+    severity: error
+    category: maintainability
+    cwe: ""
+  not-callable:
+    ap_id: AP-PY-LINT-000
+    severity: error
+    category: maintainability
+    cwe: ""
+  too-many-function-args:
+    ap_id: AP-PY-LINT-000
+    severity: error
+    category: maintainability
+    cwe: ""
+  no-value-for-parameter:
+    ap_id: AP-PY-LINT-000
+    severity: error
+    category: maintainability
+    cwe: ""
+  unreachable:
+    ap_id: AP-PY-LINT-000
+    severity: warn
+    category: maintainability
+    cwe: ""
+  self-assigning-variable:
+    ap_id: AP-PY-LINT-000
+    severity: warn
+    category: maintainability
+    cwe: ""
+  comparison-with-callable:
+    ap_id: AP-PY-LINT-000
+    severity: warn
+    category: maintainability
+    cwe: ""
+  logging-fstring-interpolation:
+    ap_id: AP-PY-LINT-000
+    severity: info
+    category: maintainability
+    cwe: ""

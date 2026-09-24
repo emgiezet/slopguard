@@ -1,0 +1,19 @@
+{
+  "minLines": 5,
+  "minTokens": 50,
+  "reporters": ["json"],
+  "silent": true,
+  "gitignore": true,
+  "ignore": [
+    "**/node_modules/**",
+    "**/vendor/**",
+    "**/.venv/**",
+    "**/dist/**",
+    "**/build/**",
+    "**/*.min.js",
+    "**/*_pb2.py",
+    "**/*.generated.*",
+    "**/testdata/**",
+    "**/__snapshots__/**"
+  ]
+}

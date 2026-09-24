@@ -172,3 +172,59 @@ rules:
     severity: warn
     category: security
     cwe: CWE-1333
+  # Dead-code, control-flow defect, and size/complexity rules added for AI-slop coverage (arXiv:2508.14727, arXiv:2508.21634)
+  no-unused-vars:
+    ap_id: AP-TS-LINT-000
+    severity: warn
+    category: maintainability
+    cwe: ""
+  no-unreachable:
+    ap_id: AP-TS-LINT-000
+    severity: error
+    category: maintainability
+    cwe: ""
+  no-dupe-else-if:
+    ap_id: AP-TS-LINT-000
+    severity: error
+    category: maintainability
+    cwe: ""
+  no-constant-condition:
+    ap_id: AP-TS-LINT-000
+    severity: warn
+    category: maintainability
+    cwe: ""
+  no-empty:
+    ap_id: AP-TS-LINT-000
+    severity: warn
+    category: maintainability
+    cwe: ""
+  no-useless-catch:
+    ap_id: AP-TS-LINT-000
+    severity: warn
+    category: maintainability
+    cwe: ""
+  no-useless-return:
+    ap_id: AP-TS-LINT-000
+    severity: warn
+    category: maintainability
+    cwe: ""
+  complexity:
+    ap_id: AP-TS-LINT-000
+    severity: warn
+    category: maintainability
+    cwe: ""
+  max-lines-per-function:
+    ap_id: AP-TS-LINT-000
+    severity: warn
+    category: maintainability
+    cwe: ""
+  max-depth:
+    ap_id: AP-TS-LINT-000
+    severity: warn
+    category: maintainability
+    cwe: ""
+  max-params:
+    ap_id: AP-TS-LINT-000
+    severity: warn
+    category: maintainability
+    cwe: ""

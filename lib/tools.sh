@@ -234,6 +234,14 @@ tool_config_path() {
                 && { printf '%s' "${project_dir}/.hadolint.yaml"; return; }
             printf '%s' "${CLAUDE_PLUGIN_ROOT}/configs/baseline/.hadolint.yaml"
             ;;
+        jscpd)
+            if [ -n "$project_dir" ]; then
+                for candidate in "${project_dir}/.jscpd.json" "${project_dir}/.jscpd.jsonc"; do
+                    [ -f "$candidate" ] && { printf '%s' "$candidate"; return; }
+                done
+            fi
+            printf '%s' "${CLAUDE_PLUGIN_ROOT}/configs/baseline/.jscpd.json"
+            ;;
         kube-linter)
             [ -n "$project_dir" ] && [ -f "${project_dir}/.kube-linter.yaml" ] \
                 && { printf '%s' "${project_dir}/.kube-linter.yaml"; return; }

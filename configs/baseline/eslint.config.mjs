@@ -41,6 +41,19 @@ export default defineConfig(
       'regexp/no-super-linear-move': 'warn',
       'no-unsanitized/method': 'error',
       'no-unsanitized/property': 'error',
+      // Dead-code and control-flow defect rules — AI-slop signals (arXiv:2508.14727: 34.8–42.7% of LLM smells are unused/dead code)
+      'no-unused-vars': ['warn', { vars: 'all', args: 'after-used', ignoreRestSiblings: true }],
+      'no-unreachable': 'error',         // unreachable code is a definite defect, not a style issue
+      'no-dupe-else-if': 'error',        // duplicate condition makes one branch permanently dead
+      'no-constant-condition': ['warn', { checkLoops: false }], // flag constant if-conditions; allow while(true) for intentional loops
+      'no-empty': ['warn', { allowEmptyCatch: false }],
+      'no-useless-catch': 'warn',
+      'no-useless-return': 'warn',
+      // Size and complexity — supporting signals only; structural metrics do not reliably discriminate AI code (arXiv:2508.21634, ISSRE 2025)
+      'complexity': ['warn', { max: 15 }],                                                     // 15 is conservative to avoid noise on legitimately complex logic
+      'max-lines-per-function': ['warn', { max: 80, skipComments: true, skipBlankLines: true }], // 80 non-blank non-comment lines; conservative baseline
+      'max-depth': ['warn', { max: 5 }],  // 5 levels of nesting; deeper nesting is a duplication and dead-code indicator
+      'max-params': ['warn', { max: 5 }], // 5 params; conservative; does not interact with @typescript-eslint/no-explicit-any
     },
   },
 
