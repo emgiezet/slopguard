@@ -1,14 +1,20 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "slop-guard",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Prevents, detects and gates security, performance and maintainability anti-patterns in agent-written code: per-language prevention skills, deterministic checks after each edit, and a Stop gate that blocks on unresolved blockers",
   "author": {
     "name": "Max Małecki",
     "url": "https://mmx3.pl"
   },
   "license": "MIT",
-  "keywords": ["security", "sast", "linting", "anti-patterns", "supply-chain"],
+  "keywords": [
+    "security",
+    "sast",
+    "linting",
+    "anti-patterns",
+    "supply-chain"
+  ],
   "extensions": {
     "com.openai": {
       "hooks": "./hooks/hooks.json",
@@ -18,7 +24,9 @@
         "longDescription": "Enforces linter-suppression justifications, blocks supply-chain installs, denies credential file access, detects hard-coded secrets, and gates quality-config lowering — at the PreToolUse boundary, across Claude Code, Codex, and Grok.",
         "developerName": "Max Małecki",
         "category": "Security",
-        "capabilities": ["PreToolUse"]
+        "capabilities": [
+          "PreToolUse"
+        ]
       },
       "userConfig": {
         "enforcement_mode": {
