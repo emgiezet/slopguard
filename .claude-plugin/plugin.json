@@ -2,7 +2,7 @@
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "slop-guard",
   "displayName": "Slop Guard",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Prevents, detects and gates security, performance and maintainability anti-patterns in agent-written code.",
   "license": "MIT",
   "author": {
