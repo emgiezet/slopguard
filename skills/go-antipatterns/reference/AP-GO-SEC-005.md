@@ -7,11 +7,15 @@
 Setting `InsecureSkipVerify: true` means the server certificate is never validated. An attacker in a privileged network position can intercept all traffic. Provide a proper `RootCAs` pool instead.
 
 ## Do Not Write
+```go
 tr := &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}
+```
 
 ## Instead Write
+```go
 pool, _ := x509.SystemCertPool()
 tr := &http.Transport{TLSClientConfig: &tls.Config{RootCAs: pool}}
+```
 
 ## Detection
 - golangci-lint: `gosec:G402`

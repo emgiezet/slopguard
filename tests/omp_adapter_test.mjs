@@ -210,13 +210,13 @@ test('read: .env blocked and :10-20 selector stripped before policy sees path', 
 });
 
 test('ask decision with ctx.hasUI=false becomes a block', async (t) => {
-  // npm install triggers an 'ask' decision in pre-bash.
+  // A routine install no longer asks (AP-AGENT-004); a look-alike package name still does.
   // With hasUI=false the adapter sets AISDLC_HEADLESS=1; the policy converts ask→deny.
   const { pi, handlers } = makePi();
   factory(pi);
 
   const result = await handlers.tool_call(
-    { toolName: 'bash', input: { command: 'npm install lodash' } },
+    { toolName: 'bash', input: { command: 'npm install expres' } },
     makeCtx({ hasUI: false }),
   );
 

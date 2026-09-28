@@ -23,11 +23,60 @@ secrets:
   remediation: "Use an environment variable or a secret manager instead."
 
 # ─────────────────────────────────────────────────────────────────────────────
-# §7.2C  Protected files → ask
+# §7.2C  Quality-gate edits → ask (test gates) or context note (linter configs)
 # ─────────────────────────────────────────────────────────────────────────────
-# Reason: "lowering quality gates must be reviewed by a human"
-protected_files:
-  # Always ask — unconditional.
+# AP-AGENT-002 covers two different acts and treats them differently.
+#
+#   ask  — a required test gate is weakened, or slop-guard's own configuration is
+#          edited. Reason: "a required test gate is being weakened" / "turning the
+#          guard down removes the gate".
+#   note — a linter or type-checker threshold or baseline is loosened. Emitted as
+#          additionalContext and never gated: a repository that ships daily edits
+#          these legitimately, and a prompt per edit trains the human to approve
+#          without reading. The loosening still reaches the human through the
+#          finding it fails to suppress.
+test_gates:
+  # Unconditional ask — slop-guard's own configuration.
+  guard_config:
+    filenames:
+      # .slopguard.json selects which stacks are guarded; disabling a stack silences the language layer.
+      - ".slopguard.json"
+    # A tool descriptor names a binary the plugin will execute on every write;
+    # a mapping override can lower a severity.  Both are human decisions, not
+    # moves an agent makes mid-turn.
+    path_patterns:
+      - ".slopguard/tools/*.yaml"
+      - ".slopguard/mapping/*.yaml"
+
+  # Ask when a coverage minimum drops or disappears, in any file.
+  coverage_thresholds:
+    keywords:
+      - "cov-fail-under"
+      - "fail_under"
+      - "fail-under"
+      - "coverageThreshold"
+      - "coverage_threshold"
+      - "coverage-threshold"
+      - "minimum_coverage"
+      - "min_coverage"
+    trigger_when: "a number following a keyword decreases, or one of them disappears"
+
+  # Ask when CI stops gating on tests.
+  ci_test_gate:
+    patterns:
+      - ".github/workflows/*"
+      - ".gitlab-ci.yml"
+    step_keywords:
+      - test
+      - coverage
+    disabling_markers:
+      - "continue-on-error: true"
+      - "allow_failure: true"
+      - "if: false"
+    trigger_when: "a step keyword disappears, or a disabling marker appears that was not there"
+
+# Context note only — no prompt, no block.
+linter_configs:
   tool_configs:
     - "phpstan*.neon*"
     - "psalm*.xml*"
@@ -43,17 +92,6 @@ protected_files:
     - "zizmor.yml"
     - ".gitleaks.toml"
     - ".sqlfluff"
-    # .slopguard.json selects which stacks are guarded; disabling a stack silences the language layer.
-    - ".slopguard.json"
-
-  # .slopguard/ extension tree — path-based; matched on full file_path in hooks/pre-write.
-  # A tool descriptor names a binary the plugin will execute on every write;
-  # a mapping override can lower a severity.  Both are human decisions, not
-  # moves an agent makes mid-turn.
-  slopguard_extensions:
-    path_patterns:
-      - ".slopguard/tools/*.yaml"
-      - ".slopguard/mapping/*.yaml"
 
   baselines:
     - "phpstan-baseline.neon"
@@ -61,7 +99,6 @@ protected_files:
     - ".eslintcache"
     - "*.baseline.json"
 
-  # Ask only when condition is met.
   conditional:
     pyproject_toml:
       filename: "pyproject.toml"
@@ -75,13 +112,3 @@ protected_files:
       trigger_when_weakens_strict: true
       # "weakens strict" = adds `"strict": false` that wasn't there,
       # or removes `"strict": true` that was there.
-
-    ci_removes_step:
-      patterns:
-        - ".github/workflows/*"
-        - ".gitlab-ci.yml"
-      # Ask when the write removes occurrences of these keywords.
-      step_keywords:
-        - lint
-        - test
-        - security

@@ -7,12 +7,16 @@
 The `math/rand` package is a pseudo-random number generator seeded deterministically; its output can be predicted. Use `crypto/rand` when generating tokens, nonces, or any security-sensitive values.
 
 ## Do Not Write
+```go
 token := fmt.Sprintf("%d", rand.Int63())
+```
 
 ## Instead Write
+```go
 b := make([]byte, 32)
 if _, err := rand.Read(b); err != nil { return err }
 token := hex.EncodeToString(b) // crypto/rand.Read
+```
 
 ## Detection
 - golangci-lint: `gosec:G404`

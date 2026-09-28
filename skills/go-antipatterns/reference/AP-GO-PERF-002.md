@@ -7,10 +7,13 @@
 Failing to close an HTTP response body or database rows leaks connections and file descriptors. Always defer `Close()` immediately after confirming no error, and check `rows.Err()` after the iteration loop.
 
 ## Do Not Write
+```go
 resp, err := client.Do(req)
 // resp.Body never closed — connection leak
+```
 
 ## Instead Write
+```go
 resp, err := client.Do(req)
 if err != nil { return err }
 defer resp.Body.Close()
@@ -19,6 +22,7 @@ if err != nil { return err }
 defer rows.Close()
 for rows.Next() { /* … */ }
 return rows.Err()
+```
 
 ## Detection
 - golangci-lint: `bodyclose`

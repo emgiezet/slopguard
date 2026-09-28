@@ -7,9 +7,13 @@
 A bare type assertion `x.(T)` panics at runtime if the dynamic type is not `T`. Always use the two-value form `v, ok := x.(T)` and check `ok` before using `v`.
 
 ## Do Not Write
+```go
 val := data["key"].(string) // panics if not a string
+```
 
 ## Instead Write
+```go
 val, ok := data["key"].(string)
 if !ok { return fmt.Errorf("key is not a string") }
+```
 

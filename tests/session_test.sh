@@ -106,6 +106,26 @@ else
     ok "missing tools: report appears once per session"
 fi
 
+# The nine always-on rules are printed once per repository; later sessions get a
+# pointer. They stay enforced either way — this is a banner rule, not a policy one.
+printf '%s\n' "${_out}" | grep -q '^AP-AGENT-005:' \
+    && ok  "digest: first session in a repository prints the full rule list" \
+    || bad "digest: first session in a repository prints the full rule list" "${_out}"
+
+if printf '%s\n' "${_out_repeat}" | grep -q '^AP-AGENT-005:'; then
+    bad "digest: later sessions print the pointer instead" "${_out_repeat}"
+else
+    printf '%s\n' "${_out_repeat}" | grep -q 'always-on rules enforced by hooks' \
+        && ok  "digest: later sessions print the pointer instead" \
+        || bad "digest: later sessions print the pointer instead" "${_out_repeat}"
+fi
+
+_out_forced="$(printf '%s\n' "${SESSION_JSON}" \
+    | SLOPGUARD_DIGEST=full CLAUDE_PROJECT_DIR="${_empty}" "${HOOK}" 2>/dev/null)"
+printf '%s\n' "${_out_forced}" | grep -q '^AP-AGENT-005:' \
+    && ok  "digest: SLOPGUARD_DIGEST=full forces the long form" \
+    || bad "digest: SLOPGUARD_DIGEST=full forces the long form" "${_out_forced}"
+
 # --------------------------------------------------------------------------- #
 # 3b. Tool relevance follows the detected stacks
 # --------------------------------------------------------------------------- #

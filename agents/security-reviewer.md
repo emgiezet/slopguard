@@ -31,6 +31,10 @@ specific file, line, or AP-* identifier from the catalogue.
    - Trust boundary crossings where external input reaches privileged operations.
    - Logic errors: TOCTOU races, integer overflows, off-by-one in size checks.
    - Missing rate limiting, missing idempotency on mutating endpoints.
+   - Authentication, session and account-recovery paths — apply the lenses in the
+     `security-review` skill and the AP-AUTH-* catalogue entries (token entropy,
+     reset-token TTL, session rotation and invalidation, re-authentication before
+     a credential change, OTP attempt limits, OAuth2 state and PKCE).
 
 4. **Suppressions** — search the changed files for suppression comments
    (`nolint`, `noqa`, `@ts-ignore`, `@phpstan-ignore`, `checkov:skip`, etc.).

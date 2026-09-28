@@ -319,12 +319,23 @@ main() {
         printf 'slop-guard: %s %s using example configs (security findings only) — adopt one: slopguard adopt-config %s\n' \
             "$_overlay_count" "$_ov_word" "$_overlay_example"
     fi
+    # The nine rules do not change between sessions. A repository that has already
+    # been told gets the pointer instead — the hooks enforce them either way, and a
+    # banner reprinted at every session start is a banner nobody reads.
+    # SLOPGUARD_DIGEST=full forces the long form (tests, and a deliberate refresher).
+    local _digest_marker
+    _digest_marker="${CLAUDE_PLUGIN_DATA}/projects/$(printf '%s' "$_d" | cksum | awk '{print $1}')/digest-shown"
+    if [ "${SLOPGUARD_DIGEST:-auto}" != "full" ] && [ -f "$_digest_marker" ]; then
+        printf 'slop-guard active — 9 always-on rules enforced by hooks (AP-AGENT-001..009); full text: skill agent-discipline\n'
+        return 0
+    fi
+    mkdir -p "${_digest_marker%/*}" 2>/dev/null && : > "$_digest_marker"
     cat <<'DIGEST'
 slop-guard active — always-on rules (full text: skill agent-discipline)
 AP-AGENT-001: linter suppressions without a reason (≥10 chars) are blocked.
-AP-AGENT-002: lowering tool thresholds or growing lint baselines requires human review.
+AP-AGENT-002: weakening a required test gate needs human review; linter thresholds are recorded, not gated.
 AP-AGENT-003: skipping or deleting tests to make CI green requires confirmation.
-AP-AGENT-004: new dependency installs need confirmation; curl|sh is always blocked.
+AP-AGENT-004: curl|sh is always blocked; an install whose name resembles a popular package needs confirmation.
 AP-AGENT-005: .env*, private keys, and credential files are denied for reading.
 AP-AGENT-006: hard-coded credentials in written files are detected and blocked.
 AP-AGENT-007: edits outside the targeted diff scope are flagged at turn end.

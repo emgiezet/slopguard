@@ -7,10 +7,14 @@
 Passing a user-controlled string to `exec.Command("sh", "-c", input)` allows shell metacharacter injection. Pass each argument as a separate string so the OS invokes the binary directly without a shell.
 
 ## Do Not Write
+```go
 cmd := exec.Command("sh", "-c", "convert "+userFile+" output.png")
+```
 
 ## Instead Write
+```go
 cmd := exec.Command("convert", userFile, "output.png")
+```
 
 ## Detection
 - golangci-lint: `gosec:G204`

@@ -1,14 +1,18 @@
-# AP-AGENT-002 — Lowering tool thresholds or growing lint baselines
+# AP-AGENT-002 — Weakening a required test gate
 
 **Category:** agent | **Severity:** error
 
 ## Summary
-Reducing the PHPStan level, adding entries to a Psalm or ESLint baseline, or disabling linter rules to make the build green is treating the symptom, not the cause. Each such change must be explicitly approved by a human reviewer.
+Dropping a coverage threshold, deleting a test or coverage step from CI, letting it fail open with continue-on-error, or turning slop-guard itself down removes the gate that proves the change works. Each needs a human decision. Loosening a linter or type-checker threshold is a different act — it is recorded in context, not gated, because a repository that ships daily changes those legitimately.
 
 ## Do Not Write
-# Lowering phpstan level from 8 to 5 to suppress type errors
-# Adding 20 new entries to phpstan-baseline.neon
+```
+# fail_under = 90 → 60 in pyproject.toml to make the build green
+# continue-on-error: true on the test job
+```
 
 ## Instead Write
-# Fix the actual code issue; if a suppression is needed, document why with a human reviewer
+```
+# Fix the code the gate rejects; move the threshold only as a reviewed decision
+```
 

@@ -7,11 +7,14 @@
 Spawning one goroutine per item in an unbounded loop can exhaust memory and scheduler capacity when the input is large or arrives faster than the goroutines complete. Use `errgroup` with `SetLimit` or a worker-pool pattern with context cancellation.
 
 ## Do Not Write
+```go
 for _, item := range items {
     go process(item) // no limit, no error handling
 }
+```
 
 ## Instead Write
+```go
 g, ctx := errgroup.WithContext(ctx)
 g.SetLimit(runtime.NumCPU())
 for _, item := range items {
@@ -19,6 +22,7 @@ for _, item := range items {
     g.Go(func() error { return process(ctx, item) })
 }
 return g.Wait()
+```
 
 ## Detection
 - opengrep: `slopguard.go.goroutine-per-item-unbounded`

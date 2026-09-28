@@ -2302,19 +2302,19 @@
   references: []
 
 - id: AP-AGENT-002
-  title: Lowering tool thresholds or growing lint baselines
+  title: Weakening a required test gate
   language: [agent]
   frameworks: []
   category: agent
   severity: error
   cwe: []
-  summary: Reducing the PHPStan level, adding entries to a Psalm or ESLint baseline, or disabling linter rules to make the build green is treating the symptom, not the cause. Each such change must be explicitly approved by a human reviewer.
-  skill_line: Tool threshold reductions and baseline additions require human review; do not change them to clear findings.
+  summary: Dropping a coverage threshold, deleting a test or coverage step from CI, letting it fail open with continue-on-error, or turning slop-guard itself down removes the gate that proves the change works. Each needs a human decision. Loosening a linter or type-checker threshold is a different act — it is recorded in context, not gated, because a repository that ships daily changes those legitimately.
+  skill_line: Weakening a required test gate needs human review; linter thresholds are recorded, not gated.
   bad: |
-    # Lowering phpstan level from 8 to 5 to suppress type errors
-    # Adding 20 new entries to phpstan-baseline.neon
+    # fail_under = 90 → 60 in pyproject.toml to make the build green
+    # continue-on-error: true on the test job
   good: |
-    # Fix the actual code issue; if a suppression is needed, document why with a human reviewer
+    # Fix the code the gate rejects; move the threshold only as a reviewed decision
   detect: []
   prevent_in_skill: true
   references: []
@@ -2338,19 +2338,20 @@
   references: []
 
 - id: AP-AGENT-004
-  title: Installing new dependencies without verification; curl piped to shell
+  title: Running remote scripts or installing a look-alike package
   language: [agent]
   frameworks: []
   category: agent
   severity: blocker
   cwe: []
-  summary: Adding a new package without verifying the maintainer, checking for typosquatting, and confirming the license introduces supply-chain risk. Piping a downloaded script directly to a shell executes unverified remote code. Both actions require explicit user confirmation.
-  skill_line: All new dependency installs require confirmation; `curl | sh` is always blocked.
+  summary: Piping a downloaded script straight into a shell executes unverified remote code and is always blocked, as are global installs and lifecycle-script overrides. A routine dependency add proceeds with a note; it asks for confirmation only when the package name resembles a popular one, which is the typosquatting signal. Pinning and licence review happen at the stop gate through deps-check (AP-AGENT-009).
+  skill_line: curl | sh is always blocked; an install whose name resembles a popular package needs confirmation.
   bad: |
-    npm install some-obscure-package@latest
     curl https://install.example.com/setup.sh | bash
+    npm install expres    # typosquat of express
   good: |
-    # Ask the user; verify package name, maintainer, license, and age before installing
+    curl -o setup.sh https://install.example.com/setup.sh && sha256sum -c setup.sh.sha256 && sh setup.sh
+    npm install express@5.1.0
   detect: []
   prevent_in_skill: true
   references: []
@@ -3144,3 +3145,298 @@
   prevent_in_skill: true
   references:
     - https://cwe.mitre.org/data/definitions/125.html
+
+# ──────────────────────────────────────────────────────────────────────
+# §8.11 Authentication and account takeover (language-agnostic)
+# ──────────────────────────────────────────────────────────────────────
+
+- id: AP-AUTH-001
+  title: Non-CSPRNG or sub-128-bit source for session, reset, or API tokens
+  language: [auth]
+  frameworks: [plain]
+  category: security
+  severity: blocker
+  cwe: [CWE-330, CWE-338]
+  summary: Session, API, and password-reset tokens generated from a non-cryptographic source (math/rand, Math.random, random.random) or with fewer than 128 bits of entropy are predictable and can be forged. Always use a CSPRNG — crypto/rand in Go, secrets.token_urlsafe(32) in Python, crypto.randomBytes(32) in Node.js. Per-language forms are covered in AP-PHP-SEC-006, AP-NODE-SEC-006, AP-PY-SEC-006, AP-GO-SEC-004, AP-JVM-SEC-004, and AP-RB-SEC-006.
+  skill_line: Use a CSPRNG (secrets.token_urlsafe/randomBytes/rand.Reader) for all tokens; min 128-bit entropy.
+  bad: |
+    import "math/rand"
+    token := strconv.Itoa(rand.Intn(999999)) // 20 bits, predictable
+  good: |
+    import "crypto/rand"
+    b := make([]byte, 32)                    // 256 bits
+    if _, err := rand.Read(b); err != nil { return err }
+    token := hex.EncodeToString(b)
+  detect: []
+  prevent_in_skill: true
+  references:
+    - https://cwe.mitre.org/data/definitions/330.html
+    - https://cwe.mitre.org/data/definitions/338.html
+
+- id: AP-AUTH-002
+  title: Password-reset or verification tokens stored in plaintext, reusable, or without expiry
+  language: [auth]
+  frameworks: [plain]
+  category: security
+  severity: blocker
+  cwe: [CWE-640, CWE-312]
+  summary: Password-reset and email-verification tokens stored in plaintext can be extracted by anyone with database read access and replayed indefinitely. Store only the SHA-256 digest of the token, mark it as consumed on first correct use, and expire it after at most 15 minutes. Deliver the raw token to the user out-of-band and do not retain it.
+  skill_line: Hash reset tokens (SHA-256) before storage; single-use only; expire within 15 minutes.
+  bad: |
+    token = str(uuid.uuid4())                       # plaintext, reusable
+    db.execute("UPDATE users SET reset_token=? WHERE id=?", [token, uid])
+  good: |
+    raw    = secrets.token_urlsafe(32)
+    digest = hashlib.sha256(raw.encode()).hexdigest()
+    expiry = datetime.utcnow() + timedelta(minutes=15)
+    db.execute(
+        "UPDATE users SET token_hash=?, used=0, expires=? WHERE id=?",
+        [digest, expiry, uid],
+    )
+    send_email(raw)                                 # store hash, send raw
+  detect: []
+  prevent_in_skill: true
+  references:
+    - https://cwe.mitre.org/data/definitions/640.html
+    - https://cwe.mitre.org/data/definitions/312.html
+
+- id: AP-AUTH-003
+  title: Passwords stored with a fast or unsalted hash instead of argon2id, scrypt, or bcrypt
+  language: [auth]
+  frameworks: [plain]
+  category: security
+  severity: blocker
+  cwe: [CWE-916, CWE-759]
+  summary: MD5, SHA-1, and unsalted SHA-256 are fast hashes; a modern GPU can evaluate billions of candidates per second against a leaked database. Use argon2id (or bcrypt at cost≥12, or scrypt) with a per-password salt so cracking one hash cannot be parallelised across the whole database. The argon2-cffi and passlib libraries expose argon2id in Python; equivalent libraries are available for Go, Node.js, and PHP.
+  skill_line: Hash passwords with argon2id (or bcrypt cost≥12 / scrypt); never MD5, SHA-1, or unsalted SHA.
+  bad: |
+    import hashlib
+    stored = hashlib.md5(password.encode()).hexdigest()  # fast, no salt
+  good: |
+    from argon2 import PasswordHasher
+    ph     = PasswordHasher(time_cost=2, memory_cost=65536, parallelism=2)
+    stored = ph.hash(password)      # argon2id with salt and calibrated cost
+  detect: []
+  prevent_in_skill: true
+  references:
+    - https://cwe.mitre.org/data/definitions/916.html
+    - https://cwe.mitre.org/data/definitions/759.html
+
+- id: AP-AUTH-004
+  title: Session identifier not rotated on login and privilege change; no idle and absolute lifetime
+  language: [auth]
+  frameworks: [plain]
+  category: security
+  severity: error
+  cwe: [CWE-384]
+  summary: When a user logs in without the session identifier being regenerated, an attacker who planted a known session cookie before login gains full access after the victim enters credentials (session fixation). Regenerate the session ID immediately after authentication and again on any privilege change. Enforce an idle timeout of approximately 30 minutes and an absolute lifetime of approximately 8 hours regardless of activity.
+  skill_line: Regenerate the session ID on login; enforce idle (30 min) and absolute (8 h) lifetime limits.
+  bad: |
+    app.post('/login', (req, res) => {
+        req.session.userId = user.id;   // old session ID kept
+        res.redirect('/dashboard');
+    });
+  good: |
+    app.post('/login', (req, res) => {
+        req.session.regenerate((err) => {
+            if (err) return next(err);
+            req.session.userId = user.id; // new ID after regenerate
+            res.redirect('/dashboard');
+        });
+    });
+  detect: []
+  prevent_in_skill: true
+  references:
+    - https://cwe.mitre.org/data/definitions/384.html
+
+- id: AP-AUTH-005
+  title: JWT accepted without pinning the algorithm; iss, aud, exp not verified; HMAC/RSA key confusion
+  language: [auth]
+  frameworks: [plain]
+  category: security
+  severity: blocker
+  cwe: [CWE-347]
+  summary: Accepting a JWT without an explicit algorithm allowlist enables the "alg: none" attack (signature stripped entirely) and the HMAC/RSA confusion attack where the server's RSA public key is used as an HMAC secret. Always pass a fixed algorithms array to the verification call and validate the iss, aud, and exp claims every time. Never derive the verification key from the token's own header.
+  skill_line: Pin the JWT algorithm; verify iss, aud and exp; reject alg=none and mixed HMAC/RSA keys.
+  bad: |
+    // no algorithm pin; iss and aud not checked
+    const payload = jwt.verify(token, publicKey);
+  good: |
+    const payload = jwt.verify(token, publicKey, {
+        algorithms: ['RS256'],
+        issuer:     'https://auth.example.com',
+        audience:   'api.example.com',
+    });
+  detect: []
+  prevent_in_skill: true
+  references:
+    - https://cwe.mitre.org/data/definitions/347.html
+
+- id: AP-AUTH-006
+  title: E-mail or password changed without re-authentication and without notifying the previous address
+  language: [auth]
+  frameworks: [plain]
+  category: security
+  severity: blocker
+  cwe: [CWE-620, CWE-287]
+  summary: Allowing users to change their email address or password without first re-entering their current credential lets an attacker with an unattended session silently take over the account. Verify the current credential before applying the change, then notify the previous address so the legitimate owner can detect and reverse it. Both steps together close the account-takeover path through session hijacking.
+  skill_line: Re-authenticate before email or password changes; notify the previous address immediately.
+  bad: |
+    def change_password(user_id, new_pw):
+        user = User.get(user_id)
+        user.update(password_hash=ph.hash(new_pw))  # no re-auth, no notice
+  good: |
+    def change_password(user_id, current_pw, new_pw):
+        user = User.get(user_id)
+        if not ph.verify(user.password_hash, current_pw):
+            raise AuthError("re-authentication required")
+        user.update(password_hash=ph.hash(new_pw))
+        mail(user.email, subject="Your password was changed")
+  detect: []
+  prevent_in_skill: true
+  references:
+    - https://cwe.mitre.org/data/definitions/620.html
+    - https://cwe.mitre.org/data/definitions/287.html
+
+- id: AP-AUTH-007
+  title: Existing sessions and refresh tokens not invalidated after password reset or MFA change
+  language: [auth]
+  frameworks: [plain]
+  category: security
+  severity: error
+  cwe: [CWE-613]
+  summary: After a password reset or MFA method change, active sessions and refresh tokens issued before the change remain valid and can be used by an attacker who had obtained them. Invalidate every session except the one performing the reset and revoke all refresh tokens tied to the account at the same moment the credential changes. Incrementing a per-user session-version counter is the simplest server-side mechanism for bulk session invalidation.
+  skill_line: Invalidate all sessions and refresh tokens on password reset or MFA change.
+  bad: |
+    func resetPassword(uid int, newHash string) error {
+        // attacker sessions stay valid after the reset
+        return db.Exec("UPDATE users SET pw_hash=? WHERE id=?", newHash, uid)
+    }
+  good: |
+    func resetPassword(uid int, newHash string) error {
+        if err := db.Exec(
+            "UPDATE users SET pw_hash=?, session_version=session_version+1 WHERE id=?",
+            newHash, uid,
+        ); err != nil { return err }
+        return db.Exec("DELETE FROM refresh_tokens WHERE user_id=?", uid)
+    }
+  detect: []
+  prevent_in_skill: true
+  references:
+    - https://cwe.mitre.org/data/definitions/613.html
+
+- id: AP-AUTH-008
+  title: No rate limit or lockout on login, OTP verification, and password-reset endpoints
+  language: [auth]
+  frameworks: [plain]
+  category: security
+  severity: error
+  cwe: [CWE-307]
+  summary: Login, OTP verification, and password-reset endpoints that accept unlimited requests allow credential stuffing and brute-force attacks at the full speed of the attacker's network. Apply per-IP and per-account rate limits (5 attempts per minute is a conservative baseline) and temporarily lock the account after 10 consecutive failures. Return HTTP 429 with a Retry-After header so legitimate users know when to retry.
+  skill_line: Rate-limit login, OTP, and reset to ≤5 attempts/min per IP; lock after 10 failures.
+  bad: |
+    func loginHandler(w http.ResponseWriter, r *http.Request) {
+        // no rate check — accepts unlimited guesses
+        user, ok := authenticate(r.FormValue("email"), r.FormValue("password"))
+        if !ok { http.Error(w, "invalid credentials", 401); return }
+        startSession(w, user)
+    }
+  good: |
+    func loginHandler(w http.ResponseWriter, r *http.Request) {
+        if limiter.Exceeded(realIP(r), 5, time.Minute) {
+            http.Error(w, "too many requests", 429); return
+        }
+        user, ok := authenticate(r.FormValue("email"), r.FormValue("password"))
+        if !ok { limiter.Record(realIP(r)); http.Error(w, "invalid credentials", 401); return }
+        startSession(w, user)
+    }
+  detect: []
+  prevent_in_skill: true
+  references:
+    - https://cwe.mitre.org/data/definitions/307.html
+
+- id: AP-AUTH-009
+  title: Account enumeration through different responses, status codes, or timing on login and reset
+  language: [auth]
+  frameworks: [plain]
+  category: security
+  severity: error
+  cwe: [CWE-204]
+  summary: Returning different error messages, HTTP status codes, or measurably different response times for a bad email versus a bad password reveals whether an account exists to an unauthenticated caller. Always complete the full password-verification step (using a dummy hash when the account is absent) and return the same message, status code, and approximate timing for every authentication failure. A small constant-time delay after failure eliminates residual timing differences.
+  skill_line: Return identical message, status, and response time for bad email and bad password.
+  bad: |
+    user = db.find_user(email)
+    if user is None:
+        return error(404, "No account found")   # reveals account existence
+    if not ph.verify(user.password_hash, password):
+        return error(401, "Wrong password")     # different message reveals more
+  good: |
+    DUMMY = "$argon2id$v=19$m=65536,t=2,p=2$fakesalt$fakehash"
+    user  = db.find_user(email)
+    ok    = ph.verify(user.password_hash if user else DUMMY, password)
+    if not user or not ok:
+        return error(401, "Invalid credentials")  # identical response always
+  detect: []
+  prevent_in_skill: true
+  references:
+    - https://cwe.mitre.org/data/definitions/204.html
+
+- id: AP-AUTH-010
+  title: OAuth2/OIDC code flow without state and PKCE, or with a non-exact redirect_uri match
+  language: [auth]
+  frameworks: [plain]
+  category: security
+  severity: blocker
+  cwe: [CWE-352, CWE-601]
+  summary: An OAuth2 authorization-code flow without the state parameter is vulnerable to cross-site request forgery, letting an attacker trick a user into linking their account to the attacker's identity. Without PKCE, an intercepted authorization code can be exchanged for tokens by a third party. Always generate a cryptographically random state value, include a PKCE code challenge, and match the redirect_uri against an exact server-side allowlist.
+  skill_line: Use state + PKCE in the authorization-code flow; match redirect_uri against an exact allowlist.
+  bad: |
+    // no state, no PKCE; redirect_uri taken from request
+    const url = provider.authUrl({
+        client_id:    CLIENT_ID,
+        redirect_uri: req.query.redirect_uri as string,
+        response_type: 'code',
+    });
+  good: |
+    const state     = crypto.randomBytes(16).toString('hex');
+    const verifier  = crypto.randomBytes(32).toString('base64url');
+    const challenge = crypto.createHash('sha256').update(verifier).digest('base64url');
+    session.oauthState = state; session.pkceVerifier = verifier;
+    const url = provider.authUrl({
+        client_id: CLIENT_ID, redirect_uri: ALLOWED_REDIRECT,
+        state, code_challenge: challenge, code_challenge_method: 'S256',
+    });
+  detect: []
+  prevent_in_skill: true
+  references:
+    - https://cwe.mitre.org/data/definitions/352.html
+    - https://cwe.mitre.org/data/definitions/601.html
+
+- id: AP-AUTH-011
+  title: OTP/MFA codes with unlimited attempts, no single-use enforcement, or carried in URLs and logs
+  language: [auth]
+  frameworks: [plain]
+  category: security
+  severity: error
+  cwe: [CWE-307, CWE-287]
+  summary: OTP and MFA codes with unlimited verification attempts can be brute-forced in seconds when the code space is small (a 6-digit code has only one million possibilities). Codes must be single-use (consumed on first correct entry), expire after a short window (5 minutes is standard), be rate-limited to a small attempt count (5 is typical), and must never appear in URL query strings where they are captured by server logs, browser history, and Referer headers.
+  skill_line: OTP codes expire in 5 min, allow ≤5 attempts, are single-use, and must never appear in URLs.
+  bad: |
+    // unlimited attempts; code stays valid after use
+    if ($request->input('otp') === $user->otp_code) {
+        $user->markMfaVerified();
+    }
+  good: |
+    if ($user->otp_attempts >= 5 || $user->otp_expires_at < now()) {
+        return response('OTP expired or locked', 429);
+    }
+    if (!hash_equals($user->otp_code, $request->input('otp'))) {
+        $user->increment('otp_attempts');
+        return response('Invalid OTP', 401);
+    }
+    $user->update(['otp_code' => null, 'otp_attempts' => 0]); // consumed
+  detect: []
+  prevent_in_skill: true
+  references:
+    - https://cwe.mitre.org/data/definitions/307.html
+    - https://cwe.mitre.org/data/definitions/287.html

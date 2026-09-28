@@ -68,15 +68,22 @@ lang_to_skill() {
         csharp)                 printf 'csharp-antipatterns' ;;
         ruby)                   printf 'ruby-antipatterns' ;;
         rust)                   printf 'rust-antipatterns' ;;
+        auth)                   printf 'auth-antipatterns' ;;
         *) printf '' ;;
     esac
 }
 
 # ─── paths JSON for a skill (from stacks.json) ────────────────────────────────
 skill_paths() {
-    jq -r --arg s "$1" \
-        '[.[] | select(.skill==$s) | (.globs//[])[]] | unique | @json' \
-        "$STACKS" 2>/dev/null || printf '[]'
+    case "$1" in
+        # auth is a cross-cutting concern, not a stack — enumerate globs explicitly
+        auth-antipatterns)
+            printf '["**/auth/**","**/*auth*","**/*login*","**/*session*","**/*token*","**/*password*","**/*oauth*"]' ;;
+        *)
+            jq -r --arg s "$1" \
+                '[.[] | select(.skill==$s) | (.globs//[])[]] | unique | @json' \
+                "$STACKS" 2>/dev/null || printf '[]' ;;
+    esac
 }
 
 # ─── skill description text ───────────────────────────────────────────────────
@@ -105,9 +112,11 @@ skill_desc() {
         rust-antipatterns)
             printf 'Forbidden Rust patterns — unsafe without safety comment, unwrap in library code, unchecked integer arithmetic. Applies when editing Rust files.' ;;
         agent-discipline)
-            printf 'Always-on agent behavior rules: linter suppression policy, baseline changes, test deletion, dependency installs, credential handling, scope discipline.' ;;
+            printf 'Always-on agent behavior rules: linter suppression policy, required test gates, test deletion, remote scripts and look-alike packages, credential handling, scope discipline.' ;;
         secure-review)
             printf 'Security review subagent. Reads session findings and catalogue; produces a structured security assessment. Invoke with /secure-review.' ;;
+        auth-antipatterns)
+            printf 'Forbidden authentication and session-management patterns — weak token generation, insecure password hashing, session fixation, JWT algorithm confusion, missing rate limits, and account enumeration. Applies when writing auth, login, session, token, password, or OAuth code.' ;;
         *) printf 'Anti-pattern prevention for %s.' "$1" ;;
     esac
 }
@@ -127,6 +136,7 @@ skill_title() {
         rust-antipatterns)     printf 'Rust anti-patterns' ;;
         agent-discipline)      printf 'Agent discipline — always-on rules' ;;
         secure-review)         printf 'Secure review' ;;
+        auth-antipatterns)     printf 'Authentication and account-takeover anti-patterns' ;;
         *) printf '%s' "$1" ;;
     esac
 }
@@ -229,7 +239,8 @@ generate_reference_files() {
     for sk in php-antipatterns go-antipatterns python-antipatterns \
                ts-react-antipatterns node-antipatterns sql-antipatterns \
                iac-antipatterns jvm-antipatterns csharp-antipatterns \
-               ruby-antipatterns rust-antipatterns agent-discipline; do
+               ruby-antipatterns rust-antipatterns agent-discipline \
+               auth-antipatterns; do
         mkdir -p "${sdir}/${sk}/reference"
     done
 
@@ -260,6 +271,7 @@ generate_reference_files() {
             if (arr[i]=="ruby")   return "ruby-antipatterns"
             if (arr[i]=="rust")   return "rust-antipatterns"
             if (arr[i]=="agent")  return "agent-discipline"
+            if (arr[i]=="auth")   return "auth-antipatterns"
         }
         return "misc-antipatterns"
     }
@@ -267,7 +279,8 @@ generate_reference_files() {
     function lang_fence(   l) {
         l=lang
         if (l~/php|laravel|symfony|doctrine/) return "php"
-        if (l~/\bgo\b/)    return "go"
+        # awk has no \b: match "go" as a whole tag, not as part of "django"/"mongo".
+        if (l~/(^|[^a-z])go([^a-z]|$)/) return "go"
         if (l~/python/)    return "python"
         if (l~/typescript|react/) return "typescript"
         if (l~/node|express/)    return "javascript"
@@ -301,15 +314,15 @@ generate_reference_files() {
         buf = buf "\n"
         if (fw != "" && fw != "[]") buf = buf "**Frameworks:** " fw "\n"
         buf = buf "\n## Summary\n" summary "\n\n"
+        # A snippet is code whether or not the catalogue names its language.
+        # Cross-language entries (auth, agent) carry no tag, so they fence plain.
         if (bad != "") {
             buf = buf "## Do Not Write\n"
-            if (ll != "") buf = buf "```" ll "\n" bad "\n```\n\n"
-            else          buf = buf bad "\n\n"
+            buf = buf "```" ll "\n" bad "\n```\n\n"
         }
         if (good != "") {
             buf = buf "## Instead Write\n"
-            if (ll != "") buf = buf "```" ll "\n" good "\n```\n\n"
-            else          buf = buf good "\n\n"
+            buf = buf "```" ll "\n" good "\n```\n\n"
         }
         if (det != "") buf = buf "## Detection\n" det "\n"
         if (ref != "") buf = buf "## References\n" ref
@@ -380,7 +393,8 @@ generate_reference_files() {
 for sk in php-antipatterns go-antipatterns python-antipatterns \
            ts-react-antipatterns node-antipatterns sql-antipatterns \
            iac-antipatterns jvm-antipatterns csharp-antipatterns \
-           ruby-antipatterns rust-antipatterns agent-discipline; do
+           ruby-antipatterns rust-antipatterns agent-discipline \
+           auth-antipatterns; do
     mkdir -p "${SKILLS_DIR}/${sk}/reference"
 done
 

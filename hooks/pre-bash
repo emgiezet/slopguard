@@ -60,6 +60,7 @@ while IFS= read -r component; do
 done < <(shellsplit "$command")
 decision=""
 reason=""
+note=""
 previous=""
 operator=""
 
@@ -97,10 +98,20 @@ for component in "${components[@]}"; do
     if [ "$allowed" -eq 0 ] && [ -z "$decision" ]; then
         for pattern in "${ASK_PATTERNS[@]}"; do
             if [[ "$normalized_component" =~ $pattern ]]; then
-                decision="ask"
                 if _is_dep_add "$normalized_component"; then
-                    reason="New dependency. Confirm name, maintainer, release age, and license. Pin the current stable version — check it with: slopguard deps-check.$(typosquat_hint "$normalized_component")"
+                    # AP-AGENT-004: a routine install is not a decision worth waking a
+                    # human for — a software factory runs hundreds of them. Only a
+                    # typosquat signal escalates. Pinning and licence review belong to
+                    # deps-check at the stop gate (AP-AGENT-009), not to a prompt here.
+                    _typo_hint="$(typosquat_hint "$normalized_component")"
+                    if [ -n "$_typo_hint" ]; then
+                        decision="ask"
+                        reason="Possible typosquat${_typo_hint}. Confirm the name, maintainer, release age, and license — slopguard deps-check."
+                    elif [ -z "$note" ]; then
+                        note="New dependency added. Pin the current stable version and verify it with: slopguard deps-check."
+                    fi
                 else
+                    decision="ask"
                     reason="Action requires confirmation: $component$(typosquat_hint "$normalized_component")"
                 fi
                 break
@@ -114,6 +125,8 @@ done
 
 if [ "$decision" = "ask" ]; then
     hook_ask "$reason"
+elif [ -n "$note" ]; then
+    hook_context "$note"
 fi
 
 exit 0

@@ -198,6 +198,7 @@ skill_for_lang() {
         ruby)         printf 'ruby-antipatterns' ;;
         rust)         printf 'rust-antipatterns' ;;
         agent)        printf 'agent-discipline' ;;
+        auth) printf 'auth-antipatterns' ;;
         *) printf '' ;;
     esac
 }

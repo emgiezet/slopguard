@@ -7,12 +7,16 @@
 Opening a file at a path derived from user input without cleaning and prefix-checking it allows directory traversal. Use `filepath.Clean` followed by a `strings.HasPrefix` check against the allowed base directory; in Go 1.24+ prefer `os.Root`.
 
 ## Do Not Write
+```go
 data, _ := os.ReadFile("/uploads/" + req.FormValue("file"))
+```
 
 ## Instead Write
+```go
 clean := filepath.Clean(filepath.Join("/uploads", req.FormValue("file")))
 if !strings.HasPrefix(clean, "/uploads/") { http.Error(w, "forbidden", 403); return }
 data, err := os.ReadFile(clean)
+```
 
 ## Detection
 - golangci-lint: `gosec:G304`

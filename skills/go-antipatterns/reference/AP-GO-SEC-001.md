@@ -7,10 +7,14 @@
 Using `fmt.Sprintf` or `+` to assemble SQL statements allows injection of arbitrary SQL through user-controlled values. Use placeholder parameters (`$1`, `?`) consistently.
 
 ## Do Not Write
+```go
 rows, _ := db.Query("SELECT * FROM users WHERE email = '" + email + "'")
+```
 
 ## Instead Write
+```go
 rows, err := db.QueryContext(ctx, "SELECT * FROM users WHERE email = $1", email)
+```
 
 ## Detection
 - golangci-lint: `gosec:G201`

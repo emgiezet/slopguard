@@ -7,13 +7,17 @@
 Assigning an error to `_` or comparing wrapped errors with `==` instead of `errors.Is`/`errors.As` leads to silent failures and incorrect error handling. Always handle errors and wrap with `%w` to preserve the chain.
 
 ## Do Not Write
+```go
 val, _ := strconv.Atoi(s)
 if err == sql.ErrNoRows { /* won't match wrapped errors */ }
+```
 
 ## Instead Write
+```go
 val, err := strconv.Atoi(s)
 if err != nil { return fmt.Errorf("parse id: %w", err) }
 if errors.Is(err, sql.ErrNoRows) { /* correct */ }
+```
 
 ## Detection
 - golangci-lint: `errorlint`

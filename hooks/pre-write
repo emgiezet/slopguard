@@ -108,40 +108,93 @@ while IFS=$'\t' read -r marker reason_pattern; do
 done <<< "$suppression_records"
 
 base_name="${file_path##*/}"
-protected=0
+
+# AP-AGENT-002 has two tiers, because they are two different acts.
+#   gate=1 → ask. A required test gate is being weakened: a coverage threshold
+#            drops or disappears, a test job loses its gate in CI, or the guard's
+#            own configuration is edited (turning the guard down deletes the gate
+#            as surely as deleting the job).
+#   lint=1 → note. A linter or type-checker threshold or baseline is loosened.
+#            Recorded in context, never prompted: a factory changes these daily
+#            and a prompt per edit trains the human to approve without reading.
+gate=0
+gate_reason="A required test gate is being weakened. That is a human decision, not a build fix."
+lint=0
+
+# _gate_numbers <content> — every number that follows a coverage-gate keyword.
+# Keyword list is deliberately unambiguous: each one exists only to express a
+# minimum coverage percentage, so a bare "lines: 80" elsewhere cannot trip it.
+_gate_numbers() {
+    printf '%s' "$1" \
+        | grep -oiE '(cov-fail-under|fail[_-]under|coveragethreshold|coverage[_-]threshold|minimum[_-]coverage|min[_-]coverage)[^0-9]{0,40}[0-9]+(\.[0-9]+)?' \
+        | grep -oE '[0-9]+(\.[0-9]+)?$'
+}
+
+# _thresholds_lowered <old> <new> — true when a coverage gate went down or away.
+_thresholds_lowered() {
+    local old_list new_list old_count new_count
+    old_list="$(_gate_numbers "$1")"
+    [ -n "$old_list" ] || return 1
+    new_list="$(_gate_numbers "$2")"
+    old_count="$(printf '%s\n' "$old_list" | grep -c '[0-9]')"
+    new_count="$(printf '%s\n' "$new_list" | grep -c '[0-9]' || true)"
+    [ "$new_count" -lt "$old_count" ] && return 0
+    paste <(printf '%s\n' "$old_list") <(printf '%s\n' "$new_list") \
+        | awk -F'\t' 'NF == 2 && $2 + 0 < $1 + 0 { found = 1 } END { exit !found }'
+}
+
 case "$base_name" in
-    phpstan*.neon*|psalm*.xml*|.golangci.*|eslint.config.*|.eslintrc*|ruff.toml|.ruff.toml|.tflint.hcl|.checkov.yaml|.kube-linter.yaml|.hadolint.yaml|zizmor.yml|.gitleaks.toml|.sqlfluff|.slopguard.json|.eslintcache|*.baseline.json)
-        protected=1 ;;
+    .slopguard.json)
+        gate=1
+        gate_reason="This is slop-guard's own configuration — turning the guard down removes the gate. A human decides that." ;;
+    phpstan*.neon*|psalm*.xml*|.golangci.*|eslint.config.*|.eslintrc*|ruff.toml|.ruff.toml|.tflint.hcl|.checkov.yaml|.kube-linter.yaml|.hadolint.yaml|zizmor.yml|.gitleaks.toml|.sqlfluff|.eslintcache|*.baseline.json)
+        lint=1 ;;
     pyproject.toml)
         if [ "$new_content" != "$old_content" ] \
             && { printf '%s\n%s' "$old_content" "$new_content" \
                 | grep -Eq '^\[tool\.(ruff|mypy|pyright)\]'; }; then
-            protected=1
+            lint=1
         fi ;;
     tsconfig*.json)
         if printf '%s' "$new_content" | grep -Eq '"strict"[[:space:]]*:[[:space:]]*false' \
             || { printf '%s' "$old_content" | grep -Eq '"strict"[[:space:]]*:[[:space:]]*true' \
                 && ! printf '%s' "$new_content" | grep -Eq '"strict"[[:space:]]*:[[:space:]]*true'; }; then
-            protected=1
+            lint=1
         fi ;;
 esac
 case "$file_path" in
     */.github/workflows/*|*/.gitlab-ci.yml|.github/workflows/*|.gitlab-ci.yml)
-        for keyword in lint test security; do
+        # A test or coverage step that disappears, or one that is told to stop
+        # failing the build. Lint and security steps are not gated here: those
+        # are the edits a factory makes legitimately, and their loss is a note.
+        for keyword in test coverage; do
             if printf '%s' "$old_content" | grep -qi -- "$keyword" \
                 && ! printf '%s' "$new_content" | grep -qi -- "$keyword"; then
-                protected=1
+                gate=1
                 break
             fi
         done
+        if [ "$gate" -eq 0 ] \
+            && printf '%s' "$new_content" | grep -qiE 'continue-on-error:[[:space:]]*true|allow_failure:[[:space:]]*true|if:[[:space:]]*false' \
+            && ! printf '%s' "$old_content" | grep -qiE 'continue-on-error:[[:space:]]*true|allow_failure:[[:space:]]*true|if:[[:space:]]*false'; then
+            gate=1
+        fi
         ;;
     .slopguard/tools/*.yaml|*/.slopguard/tools/*.yaml|\
     .slopguard/mapping/*.yaml|*/.slopguard/mapping/*.yaml)
-        protected=1
+        gate=1
+        gate_reason="This is slop-guard's own configuration — turning the guard down removes the gate. A human decides that."
         ;;
 esac
-if [ "$protected" -eq 1 ]; then
-    hook_ask "Lowering quality gates must be reviewed by a human."
+if [ "$gate" -eq 0 ] && _thresholds_lowered "$old_content" "$new_content"; then
+    gate=1
+fi
+if [ "$gate" -eq 1 ]; then
+    hook_ask "$gate_reason"
+    exit 0
+fi
+if [ "$lint" -eq 1 ]; then
+    hook_context "Linter or type-checker configuration changed (AP-AGENT-002). Thresholds and baselines are recorded, not gated — fix the findings rather than widening the ignore list."
     exit 0
 fi
 

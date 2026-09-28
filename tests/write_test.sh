@@ -58,9 +58,35 @@ notebook_output="$(jq -n \
 [ "$(printf '%s' "$notebook_output" | jq -r '.hookSpecificOutput.permissionDecision')" = deny ] \
     && ok 'pre-write: NotebookEdit new_source is scanned' \
     || bad 'pre-write: NotebookEdit new_source' "$notebook_output"
-run_write_policy Edit phpstan-baseline.neon 'parameters: {}' 'parameters: {}' ask 'protected baseline asks'
-run_write_policy Edit pyproject.toml '' '[tool.ruff]' ask 'removing protected pyproject section asks'
-run_write_policy Edit tsconfig.json '' '"strict": true' ask 'removing strict TypeScript config asks'
+# AP-AGENT-002 tier 1 — linter and type-checker configuration is a note, not a prompt.
+run_write_policy Edit phpstan-baseline.neon 'parameters: {}' 'parameters: {}' allow 'lint baseline edit is not gated'
+run_write_policy Edit pyproject.toml '' '[tool.ruff]' allow 'removing a ruff section is not gated'
+run_write_policy Edit tsconfig.json '' '"strict": true' allow 'removing strict TypeScript config is not gated'
+lint_note="$(jq -n --arg file 'phpstan.neon' --arg new 'level: 3' --arg old 'level: 8' \
+    '{tool_name:"Edit",tool_input:{file_path:$file,new_string:$new,old_string:$old}}' \
+    | "$WRITE_HOOK" | jq -r '.hookSpecificOutput.additionalContext // empty')"
+printf '%s' "$lint_note" | grep -qF 'AP-AGENT-002' \
+    && ok 'pre-write: lowering a phpstan level is recorded as context' \
+    || bad 'pre-write: lint threshold note' "$lint_note"
+
+# AP-AGENT-002 tier 2 — a weakened test gate asks.
+run_write_policy Edit pyproject.toml 'fail_under = 60' 'fail_under = 90' ask 'lowering a coverage threshold asks'
+run_write_policy Edit pyproject.toml 'fail_under = 95' 'fail_under = 90' allow 'raising a coverage threshold is not gated'
+run_write_policy Edit jest.config.js 'coverageThreshold: { global: { lines: 40 } }' \
+    'coverageThreshold: { global: { lines: 80 } }' ask 'lowering a jest coverage threshold asks'
+run_write_policy Edit pyproject.toml 'nothing = 1' 'fail_under = 90' ask 'deleting a coverage threshold asks'
+run_write_policy Edit .github/workflows/ci.yml 'steps:
+  - run: make build' 'steps:
+  - run: make test' ask 'removing the CI test step asks'
+run_write_policy Edit .github/workflows/ci.yml 'steps:
+  - run: make test
+    continue-on-error: true' 'steps:
+  - run: make test' ask 'letting the CI test step fail open asks'
+run_write_policy Edit .github/workflows/ci.yml 'steps:
+  - run: make test' 'steps:
+  - run: make lint
+  - run: make test' allow 'removing a CI lint step is not gated'
+
 run_write_policy Write .slopguard.json '{"stacks":[]}' '' ask '.slopguard.json write asks'
 run_write_policy Write '.slopguard/tools/sqlfluff.yaml' 'name: sqlfluff' '' ask '.slopguard/tools/*.yaml write asks'
 run_write_policy Write '.slopguard/mapping/ruff.yaml' 'rules: {}' '' ask '.slopguard/mapping/*.yaml write asks'
@@ -76,14 +102,14 @@ context_text="$(printf '%s' "$first_context" | jq -r '.hookSpecificOutput.additi
     && ok 'pre-write: language blocker context appears once' \
     || bad 'pre-write: language blocker context' "first=${first_context}, second=${second_context}"
 
-output="$(jq -n --arg file 'eslint.config.js' --arg new 'export default {}' \
-    '{tool_name:"Write",tool_input:{file_path:$file,content:$new}}' \
+output="$(jq -n --arg file 'pyproject.toml' --arg new 'fail_under = 50' --arg old 'fail_under = 90' \
+    '{tool_name:"Edit",tool_input:{file_path:$file,new_string:$new,old_string:$old}}' \
     | AISDLC_HEADLESS=1 "$WRITE_HOOK")"
 decision="$(printf '%s' "$output" | jq -r '.hookSpecificOutput.permissionDecision')"
 reason="$(printf '%s' "$output" | jq -r '.hookSpecificOutput.permissionDecisionReason')"
 [ "$decision" = deny ] && printf '%s' "$reason" | grep -qF 'no human in this session' \
-    && ok 'pre-write: headless protected edit becomes reasoned deny' \
-    || bad 'pre-write: headless protected edit' "decision=${decision}, reason=${reason}"
+    && ok 'pre-write: headless test-gate edit becomes reasoned deny' \
+    || bad 'pre-write: headless test-gate edit' "decision=${decision}, reason=${reason}"
 # Framework context in first-edit message
 # Set up isolated state dir + profile.json with framework_versions.laravel,
 # and a stacks.json that carries the context7 field for laravel.

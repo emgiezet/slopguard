@@ -7,11 +7,15 @@
 Embedding credentials, API keys, or tokens directly in source code exposes them to anyone with repository access and leaks them into version history. Load secrets from environment variables or a secret manager at runtime.
 
 ## Do Not Write
+```go
 const apiKey = "sk-live-abc123xyz789"
+```
 
 ## Instead Write
+```go
 apiKey := os.Getenv("API_KEY")
 if apiKey == "" { log.Fatal("API_KEY not set") }
+```
 
 ## Detection
 - golangci-lint: `gosec:G101`

@@ -28,14 +28,16 @@ rules:
     spec_ref: "§7.2-B"
 
   - id: AP-AGENT-002
-    title: Lowering quality-gate thresholds or growing lint baselines
+    title: Weakening a required test gate
     description: >-
-      Edits to tool config files (phpstan.neon, .golangci.yml, ruff.toml,
-      eslint.config.*, tsconfig.json strict flags, etc.) or baseline files
-      (phpstan-baseline.neon, psalm-baseline.xml) that loosen thresholds or
-      extend ignore lists require human review.
+      A coverage threshold that drops or disappears, a test or coverage step that
+      loses its gate in CI (removed, continue-on-error, allow_failure, if:false),
+      or an edit to slop-guard's own configuration requires human review. Linter
+      and type-checker thresholds and baselines (phpstan, psalm, golangci, eslint,
+      ruff, tsconfig strict) are recorded as context, not gated — a factory changes
+      them daily and a prompt per edit trains the human to approve without reading.
     enforcement: pre-write
-    decision: ask
+    decision: ask   # test gate or slop-guard config → ask; linter config → context note
     severity: error
     spec_ref: "§7.2-C"
 
@@ -51,14 +53,16 @@ rules:
     spec_ref: "§7.2-D"
 
   - id: AP-AGENT-004
-    title: Installing unverified dependencies or running remote scripts
+    title: Running remote scripts or installing a look-alike package
     description: >-
-      New package installs (npm add/install <pkg>, pip install <pkg>, uv add,
-      poetry add, go get @latest, composer require) require confirmation for
-      typosquatting and supply-chain review. Piping a remote script directly
-      to a shell (curl|sh, wget|bash, etc.) is always denied.
+      Piping a remote script directly to a shell (curl|sh, wget|bash, etc.) is
+      always denied, as are global/system installs and lifecycle-script overrides.
+      A routine dependency add (npm add, pip install, composer require, uv add,
+      poetry add) proceeds with a context note; it escalates to confirmation only
+      when the package name resembles a popular one (typosquat signal). Pinning and
+      licence review belong to deps-check at the stop gate — see AP-AGENT-009.
     enforcement: pre-bash
-    decision: deny    # curl|sh → deny; new package install → ask
+    decision: deny    # curl|sh → deny; typosquat-shaped install → ask; routine install → note
     severity: blocker
     spec_ref: "§7.1"
 
