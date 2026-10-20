@@ -6,6 +6,11 @@
 # Needs no network — every test uses file:// assets.
 set -uo pipefail
 
+# Queued phases and the aisdlc verify gate export AISDLC_HEADLESS=1, which turns every ask
+# into a deny. Cases that test headless behaviour set it per call; everything else asserts the
+# interactive decision, so the caller's value must not leak in.
+unset AISDLC_HEADLESS
+
 TESTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 PLUGIN_ROOT="$(cd "${TESTS_DIR}/.." && pwd)"
 : "${CLAUDE_PLUGIN_ROOT:=$PLUGIN_ROOT}"
