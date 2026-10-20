@@ -228,3 +228,23 @@ rules:
     severity: warn
     category: maintainability
     cwe: ""
+  "anti-slop/no-chained-type-assertions":
+    ap_id: AP-TS-MAINT-005
+    severity: warn
+    category: maintainability
+    cwe: ""
+  "anti-slop/require-safety-comment-for-type-assertion":
+    ap_id: AP-TS-MAINT-005
+    severity: warn
+    category: maintainability
+    cwe: ""
+  "anti-slop/no-known-value-widening":
+    ap_id: AP-TS-MAINT-006
+    severity: warn
+    category: maintainability
+    cwe: ""
+  "anti-slop/no-widen-then-assert":
+    ap_id: AP-TS-MAINT-006
+    severity: warn
+    category: maintainability
+    cwe: ""

@@ -148,3 +148,68 @@ if it_skip_unless_tool zizmor; then
     it_expect_silent "$_fast_out" \
         "zizmor: SHA-pinned workflow (good fixture -> silence)"
 fi
+
+# --------------------------------------------------------------------------- #
+# anti-slop/no-chained-type-assertions → AP-TS-MAINT-005 (UC-3)
+# anti-slop/require-safety-comment-for-type-assertion → AP-TS-MAINT-005 (UC-4)
+# --------------------------------------------------------------------------- #
+
+it_project eslint-anti-slop-005-bad; _fast_proj="$_IT_CUR_PROJ"
+if it_skip_unless_tool eslint-stack; then
+    # CONFIG_SOURCE=full: anti-slop rules are maintainability; overlay mode
+    # suppresses non-security findings from the baseline config (§6.1 / D29).
+    it_commit "$_fast_proj" package.json '{"type":"module"}'
+    it_commit "$_fast_proj" app.ts 'export {};'
+    it_modify "$_fast_proj" app.ts \
+        "$(cat "${_IT_FIXTURES}/ts/bad/AP-TS-MAINT-005.ts")"
+    _fast_out=$(CLAUDE_PLUGIN_OPTION_CONFIG_SOURCE=full \
+        it_run "$_fast_proj" "${_fast_proj}/app.ts" fast)
+    it_expect_ap "$_fast_out" AP-TS-MAINT-005 \
+        "UC-3: eslint anti-slop/no-chained-type-assertions (bad fixture -> AP-TS-MAINT-005)"
+    it_expect_ap "$_fast_out" AP-TS-MAINT-005 \
+        "UC-4: eslint anti-slop/require-safety-comment-for-type-assertion (bad fixture -> AP-TS-MAINT-005)"
+fi
+
+# --------------------------------------------------------------------------- #
+# anti-slop/no-known-value-widening + no-widen-then-assert → AP-TS-MAINT-006 (UC-5)
+# good fixture: SAFETY-commented assertions → silence (UC-6)
+# --------------------------------------------------------------------------- #
+
+it_project eslint-anti-slop-006-bad; _fast_proj="$_IT_CUR_PROJ"
+if it_skip_unless_tool eslint-stack; then
+    it_commit "$_fast_proj" package.json '{"type":"module"}'
+    it_commit "$_fast_proj" app.ts 'export {};'
+    it_modify "$_fast_proj" app.ts \
+        "$(cat "${_IT_FIXTURES}/ts/bad/AP-TS-MAINT-006.ts")"
+    _fast_out=$(CLAUDE_PLUGIN_OPTION_CONFIG_SOURCE=full \
+        it_run "$_fast_proj" "${_fast_proj}/app.ts" fast)
+    it_expect_ap "$_fast_out" AP-TS-MAINT-006 \
+        "UC-5: eslint anti-slop/no-known-value-widening (bad fixture -> AP-TS-MAINT-006)"
+
+    it_project eslint-anti-slop-good; _fast_proj="$_IT_CUR_PROJ"
+    it_skip_unless_tool eslint-stack
+    it_commit "$_fast_proj" package.json '{"type":"module"}'
+    it_commit "$_fast_proj" app.ts 'export {};'
+    it_modify "$_fast_proj" app.ts \
+        "$(cat "${_IT_FIXTURES}/ts/good/AP-TS-MAINT-005.ts")"
+    _fast_out=$(CLAUDE_PLUGIN_OPTION_CONFIG_SOURCE=full \
+        it_run "$_fast_proj" "${_fast_proj}/app.ts" fast)
+    it_expect_silent "$_fast_out" \
+        "UC-6: eslint anti-slop good fixture (SAFETY-commented -> no AP-TS-MAINT-005 or -006)"
+fi
+
+# --------------------------------------------------------------------------- #
+# anti-slop/no-known-value-widening good fixture → silence (UC-6 negative for 006)
+# --------------------------------------------------------------------------- #
+
+it_project eslint-anti-slop-006-good; _fast_proj="$_IT_CUR_PROJ"
+if it_skip_unless_tool eslint-stack; then
+    it_commit "$_fast_proj" package.json '{"type":"module"}'
+    it_commit "$_fast_proj" app.ts 'export {};'
+    it_modify "$_fast_proj" app.ts \
+        "$(cat "${_IT_FIXTURES}/ts/good/AP-TS-MAINT-006.ts")"
+    _fast_out=$(CLAUDE_PLUGIN_OPTION_CONFIG_SOURCE=full \
+        it_run "$_fast_proj" "${_fast_proj}/app.ts" fast)
+    it_expect_silent "$_fast_out" \
+        "UC-6: eslint anti-slop/AP-TS-MAINT-006 good fixture (no widening -> no AP-TS-MAINT-006)"
+fi

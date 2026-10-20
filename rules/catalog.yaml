@@ -1300,6 +1300,48 @@
   prevent_in_skill: false
   references: []
 
+
+- id: AP-TS-MAINT-005
+  title: Fabricated type evidence — chained assertion or uncommented cast
+  language: [typescript]
+  frameworks: [plain]
+  category: maintainability
+  severity: warn
+  cwe: []
+  summary: Chaining type assertions (`(x as A) as B`) fabricates type evidence the type checker cannot verify; so does a bare `value as Foo` with no comment explaining why the cast is safe. Both patterns smuggle incorrect types past the compiler without a runtime check. Use `// SAFETY: <reason>` above each assertion to document why it holds; never chain two assertions together.
+  skill_line: No chained `as` casts; put `// SAFETY: <reason>` above every type assertion.
+  bad: |
+    const x = (y as unknown) as Foo;   // chained — no-chained-type-assertions
+    const id = value as UserId;         // no comment — require-safety-comment-for-type-assertion
+  good: |
+    // SAFETY: value is always a positive integer returned by the auth service
+    const id = value as UserId;
+  detect:
+    - { tool: eslint, rule: "anti-slop/no-chained-type-assertions" }
+    - { tool: eslint, rule: "anti-slop/require-safety-comment-for-type-assertion" }
+  prevent_in_skill: true
+  references: []
+
+- id: AP-TS-MAINT-006
+  title: Known value widened to `unknown` then asserted back
+  language: [typescript]
+  frameworks: [plain]
+  category: maintainability
+  severity: warn
+  cwe: []
+  summary: Assigning a concrete, known value to `unknown` and then asserting it back to a specific type round-trips through the type system for no gain; the assertion is less safe than using the original type directly. Use the original type or narrow once at the boundary; do not manufacture uncertainty just to erase it with an assertion.
+  skill_line: Don't widen a known value to `unknown` to assert it into another type; use the original type.
+  bad: |
+    const w: unknown = obj;              // no-known-value-widening
+    const result = w as { id: string };  // no-widen-then-assert
+  good: |
+    const result = obj; // obj's type is already known; no assertion needed
+  detect:
+    - { tool: eslint, rule: "anti-slop/no-known-value-widening" }
+    - { tool: eslint, rule: "anti-slop/no-widen-then-assert" }
+  prevent_in_skill: true
+  references: []
+
 # ──────────────────────────────────────────────────────────────────────
 # §8.5 Node.js (backend)
 # ──────────────────────────────────────────────────────────────────────

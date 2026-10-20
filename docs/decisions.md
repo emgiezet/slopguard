@@ -126,3 +126,43 @@ allows the action.
 | D33 | Duplication as the primary AI-slop code-smell signal | **jscpd pinned; complexity explicitly not adopted as a discriminator.** GitClear 2025/2026 data is the primary evidence: ≥5-line duplicate block frequency rose 8× in the first AI-majority coding year (2024); copy-paste reached 15.7% of changed lines in 2026. arXiv:2508.21634 (ISSRE 2025, 500k samples) shows cyclomatic complexity is not a reliable separator between AI-generated and human-written code. Rejected candidates and reasons: **radon / lizard** — measure complexity, which the ISSRE 2025 study shows does not separate the populations; findings would not correlate with slop. **vulture / knip** — detect dead/unused code but require full project-environment resolution (import graph) to avoid false positives on re-exported symbols; ruff (`ERA001`, `ARG`, `RET505`) and ESLint (`no-unused-vars`, `no-unreachable`) already cover the dead-code category without a resolution requirement and without an additional pin. None of the four warranted a pin in `tools.lock.json`. | 2026-09-24 | `tools/tools.lock.json` (jscpd 5.3.2, four platforms, MIT); `lib/dispatch.sh` (`_dispatch_run_jscpd`); `rules/mapping/jscpd.yaml` (`AP-SLOP-DUP-001`, `warn`, `maintainability`); `configs/baseline/.jscpd.json`. |
 | D34 | Duplication findings bypass the security overlay | **Emit via `_dispatch_filter_emit` (diff filter only); `tool_config_mode = skip` still honoured.** The conflict: the security overlay (`config_source=overlay`) drops every finding whose mapped category is not `security`. Duplicate-block findings have `category: maintainability`; in the default configuration every jscpd finding would be dropped, making the tool dead on arrival in all repositories that have not adopted the baseline config. The resolution is direct emission through `_dispatch_filter_emit`, which applies the diff-line filter but not the overlay category filter. The boundary that keeps this from becoming a loophole: the overlay exists to suppress style-opinion findings from a baseline config a project did not adopt; a duplicate-block threshold (`minLines: 5`, `minTokens: 50`) is a measurement with no style opinion embedded — it states a count, not a rule about naming or formatting. This is the second tool class to bypass the overlay; the first is project-descriptor tools (mypy, pylint), which bypass it because they are adopted per project and run with project config unconditionally. | 2026-09-24 | `lib/dispatch.sh`: `_dispatch_run_jscpd` calls `_dispatch_filter_emit` directly. `tool_config_mode = skip` path preserved. |
 | D35 | deslop is an editing subagent, not a reviewer | **Write and Edit permitted; `--tests <cmd>` is the safety boundary for structural changes.** `agents/security-reviewer.md` uses `disallowedTools: Write, Edit` to enforce read-only behaviour — the right restriction for a reviewer that must not alter evidence. The deslop agent must write: its purpose is to delete dead code and remove duplicate blocks. The safety rule that replaces the tool restriction: without a supplied `--tests <cmd>` the agent performs pure deletions only (remove the block, confirm nothing imports it, stop) and refuses behaviour-bearing restructuring such as renaming, reordering, or merging. When `--tests <cmd>` is supplied the agent may restructure and must confirm the command passes before declaring done. `--dry-run` lists findings without writing. | 2026-09-24 | `skills/deslop/SKILL.md`; `agents/deslop.md`. |
+
+---
+
+## Decisions Confirmed 2026-10-20
+
+### Non-Blocking
+
+| # | Decision | Answer | Date | Consequence |
+|---|---|---|---|---|
+| D36 | dmmulroy/anti-slop rule mapping | **13 rules ported; 5 Effect-only and 3 style rules rejected.** This slice (GH-42-a) wires `no-chained-type-assertions` and `require-safety-comment-for-type-assertion` as `AP-TS-MAINT-005`, and `no-known-value-widening` + `no-widen-then-assert` as `AP-TS-MAINT-006`. Slices GH-42-b and GH-42-c carry the remaining adopted rules. Port via `@spacemansh/anti-slop` 0.3.0 (ESLint entry point), which tracks upstream commit `c44ef22`. | 2026-10-20 | Four ESLint rules enabled at `warn` in the TypeScript block; `AP-TS-MAINT-005` and `AP-TS-MAINT-006` added to the catalogue. GH-42-b/c rules remain disabled in the baseline config until those slices land. |
+
+### D36 — dmmulroy/anti-slop rule mapping
+
+Upstream commit `c44ef22` (tracked by `@spacemansh/anti-slop` 0.3.0), audited 2026-10-20.
+
+| anti-slop rule | decision |
+|---|---|
+| `no-chained-type-assertions` | added as `AP-TS-MAINT-005` (GH-42-a) |
+| `require-safety-comment-for-type-assertion` | added as `AP-TS-MAINT-005` (GH-42-a) |
+| `no-known-value-widening` | added as `AP-TS-MAINT-006` (GH-42-a) |
+| `no-widen-then-assert` | added as `AP-TS-MAINT-006` (GH-42-a) |
+| `no-unknown-parameters` | added as `AP-TS-MAINT-007` (GH-42-b) |
+| `no-unknown-returns` | added as `AP-TS-MAINT-007` (GH-42-b) |
+| `no-unknown-type-aliases` | added as `AP-TS-MAINT-007` (GH-42-b) |
+| `no-object-parameters` | added as `AP-TS-MAINT-007` (GH-42-b) |
+| `no-unsafe-dictionary-type` | added as `AP-TS-MAINT-007` (GH-42-b) |
+| `no-reflect-get` | added as `AP-TS-MAINT-008` (GH-42-b) |
+| `no-reflect-apply` | added as `AP-TS-MAINT-008` (GH-42-b) |
+| `no-reduce-accumulator-copy` | added as `AP-TS-PERF-005` (GH-42-c) |
+| `no-module-mocking` | added as `AP-TS-MAINT-009` (GH-42-c) |
+| `no-runtime-typeof` | covered by `AP-TS-MAINT-001` — prevention text only; the rule fires on idiomatic narrowing |
+| `no-array-filter-map` | rejected: a two-pass micro-optimisation, not low-evidence code |
+| `no-conditional-empty-object-spread` | rejected: a style preference with no defect class behind it |
+| `no-shape-in-symbol-names` | rejected: a naming taste of the upstream author |
+| `require-readable-spacing` | rejected: formatting belongs to the project's formatter |
+| `no-manual-effect-error-tag` | rejected: Effect-only architecture policy; the catalogue has no Effect framework |
+| `no-manual-tag-comparison` | rejected: Effect-only, as above |
+| `no-manual-tagged-construction` | rejected: Effect-only, as above |
+| `no-service-constructor-imports` | rejected: Effect-only, as above |
+| `prefer-effect-match` | rejected: Effect-only, as above |

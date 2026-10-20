@@ -3,6 +3,20 @@
 All notable changes to Slop Guard will be documented in this file.
 
 ## Unreleased
+- **@spacemansh/anti-slop 0.3.0 wired; AP-TS-MAINT-005 (chained/uncommented assertions) and AP-TS-MAINT-006 (widen-then-assert) added** (GH-42-a, 2026-10-20)
+
+  **Why.** Agents write code that passes the type checker by fabricating type evidence — `(y as unknown) as Foo`, an unexplained `as User`, a known value widened to `unknown` and asserted back. These patterns are invisible to `@typescript-eslint/no-explicit-any` (AP-TS-MAINT-001) because they use `as` rather than `any`. dmmulroy/anti-slop catalogues four rules that name them; this slice wires the two that fire on assertion evidence specifically.
+
+  - `tools/node/package.json` + `package-lock.json`: `@spacemansh/anti-slop` 0.3.0 added; no runtime dependencies, MIT. Peer dependencies (`eslint`, `oxlint`, `@oxlint/plugins`) are all optional; `--ignore-scripts` stays.
+  - `configs/baseline/eslint.config.mjs`: `import antiSlop from '@spacemansh/anti-slop/eslint'`; plugin registered as `anti-slop` in the TypeScript block; four rules enabled at `warn` — `anti-slop/no-chained-type-assertions`, `anti-slop/require-safety-comment-for-type-assertion`, `anti-slop/no-known-value-widening`, `anti-slop/no-widen-then-assert`.
+  - `rules/catalog.yaml`: `AP-TS-MAINT-005` (chained assertion or uncommented cast, `warn`, maintainability) and `AP-TS-MAINT-006` (known value widened to `unknown` then asserted back, `warn`, maintainability), each with two detect entries.
+  - `rules/mapping/eslint.yaml`: four entries mapping the anti-slop rule ids to `AP-TS-MAINT-005` (two) and `AP-TS-MAINT-006` (two), `severity: warn`, `category: maintainability`.
+  - `tests/fixtures/ts/bad/AP-TS-MAINT-005.ts`, `AP-TS-MAINT-006.ts` and `good/AP-TS-MAINT-005.ts`: integration test fixtures covering UC-3 through UC-6.
+  - `tests/integration/fast.sh`: four new eslint-stack blocks (UC-3: no-chained-type-assertions; UC-4: require-safety-comment-for-type-assertion; UC-5: no-known-value-widening; UC-6: SAFETY-commented good fixture).
+  - `tests/catalog_test.sh`: test 17 (UC-1) — D36 mapping table row count (must be 23) and AP-id catalogue cross-check.
+  - `docs/decisions.md`: D36 decision row plus `### D36 — dmmulroy/anti-slop rule mapping` subsection with 23-row audit table (4 adopted GH-42-a, 9 deferred GH-42-b/c, 1 covered-by, 3 rejected non-slop style, 5 rejected Effect-only).
+  - `skills/ts-react-antipatterns/` (regenerated): `SKILL.md` (31 lines, ~452 tokens) adds `AP-TS-MAINT-005` and `AP-TS-MAINT-006` to the Warnings section; `reference/AP-TS-MAINT-005.md` and `reference/AP-TS-MAINT-006.md` generated.
+
 - **Authentication catalogue; AP-AGENT-002 and AP-AGENT-004 scoped to what actually needs a human** (2026-09-28)
   - `rules/catalog.yaml`: new `auth` language tag with eleven entries, AP-AUTH-001..011 — token entropy and CSPRNG choice, reset-token hashing/single-use/TTL, password hashing (argon2id, bcrypt cost, scrypt), session rotation and idle/absolute lifetime, JWT algorithm pinning plus `iss`/`aud`/`exp`, re-authentication and owner notification on credential change, session and refresh-token invalidation after a reset, rate limits and lockout on credential endpoints, account enumeration through responses and timing, OAuth2 `state`/PKCE and exact `redirect_uri` matching, OTP attempt limits and single use. `detect: []` for all eleven — no pinned linter finds them, so they are prevention, not detection.
   - `scripts/gen-skills`: `auth` → `auth-antipatterns`, with an explicit `skill_paths` case (auth is a concern, not a stack, so it has no `rules/stacks.json` entry) matching `**/auth/**`, `**/*auth*`, `**/*login*`, `**/*session*`, `**/*token*`, `**/*password*`, `**/*oauth*`. Reference snippets are now fenced even when the entry carries no language tag — cross-language catalogues (`auth`, `agent`) previously emitted their `bad`/`good` blocks as bare paragraphs.

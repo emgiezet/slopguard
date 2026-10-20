@@ -390,6 +390,122 @@ else
     bad "catalog_test.sh bash -n" "syntax error"
 fi
 
+# ─── 17. UC-1: D36 mapping table has exactly 23 rows; every "added as / covered by" id exists ─
+DECISIONS="${PLUGIN_ROOT}/docs/decisions.md"
+D36_FAILURES=0
+
+if [ ! -f "$DECISIONS" ]; then
+    bad "D36 decisions.md" "docs/decisions.md not found"
+    D36_FAILURES=$(( D36_FAILURES + 1 ))
+else
+    # Extract the D36 Mapping table: find the section that mentions "D36" and
+    # collect lines starting with "| `" (data rows; skip header and separator).
+    # The table is identified by its header: "| anti-slop rule | decision |"
+    D36_ROWS=0
+    in_table=false
+    while IFS= read -r line; do
+        case "$line" in
+            *"anti-slop rule"*"decision"*)
+                in_table=true ;;
+            "| \`"*)
+                $in_table && D36_ROWS=$(( D36_ROWS + 1 )) ;;
+            "| "*"---"*)
+                : ;; # separator row — skip
+            "| "*)
+                $in_table && D36_ROWS=$(( D36_ROWS + 1 )) ;;
+            "")
+                $in_table && in_table=false ;;
+        esac
+    done < "$DECISIONS"
+
+    if [ "$D36_ROWS" -eq 23 ]; then
+        ok "UC-1: D36 mapping table has exactly 23 rows"
+    else
+        bad "UC-1: D36 row count" "expected 23 rows, found ${D36_ROWS}"
+        D36_FAILURES=$(( D36_FAILURES + 1 ))
+    fi
+
+    # Verify "added as AP-ID (GH-42-a)" and "covered by AP-ID" rows: those IDs
+    # must exist in catalog.yaml.  Future-slice rows (GH-42-b, GH-42-c) are not
+    # checked here — their AP-ids land when those slices are implemented.
+    D36_ID_FAILURES=0
+    while IFS= read -r line; do
+        case "$line" in
+            *"(GH-42-a)"*|*"covered by \`AP-"*)
+                ap_id="$(printf '%s' "$line" | grep -oE '`AP-[A-Z0-9-]+`' \
+                    | head -1 | tr -d '`')"
+                [ -n "$ap_id" ] || continue
+                if grep -q "^- id: ${ap_id}$" "$CATALOG"; then
+                    :
+                else
+                    bad "UC-1: D36 AP-id missing from catalog" \
+                        "${ap_id} referenced in D36 but not found in catalog.yaml"
+                    D36_ID_FAILURES=$(( D36_ID_FAILURES + 1 ))
+                fi ;;
+        esac
+    done < "$DECISIONS"
+
+    [ "$D36_ID_FAILURES" -eq 0 ] && \
+        ok "UC-1: all GH-42-a 'added as'/'covered by' AP-ids in D36 exist in catalog.yaml"
+fi
+
+# ─── 18. UC-2: @spacemansh/anti-slop 0.3.0 declared in package.json ──────────
+ANTI_SLOP_PKG="${PLUGIN_ROOT}/tools/node/package.json"
+if [ -f "$ANTI_SLOP_PKG" ]; then
+    declared="$(jq -r '.dependencies["@spacemansh/anti-slop"] // empty' "$ANTI_SLOP_PKG" 2>/dev/null || true)"
+    if [ "$declared" = "0.3.0" ]; then
+        ok "UC-2: @spacemansh/anti-slop 0.3.0 declared in tools/node/package.json"
+    else
+        bad "UC-2: @spacemansh/anti-slop version" \
+            "expected 0.3.0 in package.json, got '${declared:-missing}'"
+    fi
+    # If node_modules is installed, also verify the installed version
+    INSTALLED_PKG="${PLUGIN_ROOT}/tools/node/node_modules/@spacemansh/anti-slop/package.json"
+    if [ -f "$INSTALLED_PKG" ]; then
+        installed_ver="$(jq -r '.version // empty' "$INSTALLED_PKG" 2>/dev/null || true)"
+        if [ "$installed_ver" = "0.3.0" ]; then
+            ok "UC-2: @spacemansh/anti-slop 0.3.0 installed in node_modules"
+        else
+            bad "UC-2: installed @spacemansh/anti-slop version" \
+                "expected 0.3.0, got '${installed_ver:-missing}'"
+        fi
+    fi
+else
+    bad "UC-2: tools/node/package.json" "file not found"
+fi
+
+# ─── 19. UC-7: gen-skills --check passes; AP-TS-MAINT-005/006 reference files exist ─
+if bash "$GEN_SKILLS" --check >/dev/null 2>&1; then
+    ok "UC-7: gen-skills --check exits 0 (output is deterministic)"
+else
+    bad "UC-7: gen-skills --check" "exited non-zero"
+fi
+
+REF_005="${SKILLS_DIR}/ts-react-antipatterns/reference/AP-TS-MAINT-005.md"
+REF_006="${SKILLS_DIR}/ts-react-antipatterns/reference/AP-TS-MAINT-006.md"
+
+if [ -f "$REF_005" ]; then
+    if grep -q '## Do Not Write' "$REF_005" && grep -q '## Instead Write' "$REF_005"; then
+        ok "UC-7: reference/AP-TS-MAINT-005.md exists with bad and good blocks"
+    else
+        bad "UC-7: AP-TS-MAINT-005.md bad/good blocks" \
+            "missing ## Do Not Write or ## Instead Write sections"
+    fi
+else
+    bad "UC-7: reference/AP-TS-MAINT-005.md" "file not found"
+fi
+
+if [ -f "$REF_006" ]; then
+    if grep -q '## Do Not Write' "$REF_006" && grep -q '## Instead Write' "$REF_006"; then
+        ok "UC-7: reference/AP-TS-MAINT-006.md exists with bad and good blocks"
+    else
+        bad "UC-7: AP-TS-MAINT-006.md bad/good blocks" \
+            "missing ## Do Not Write or ## Instead Write sections"
+    fi
+else
+    bad "UC-7: reference/AP-TS-MAINT-006.md" "file not found"
+fi
+
 # ─── Summary ──────────────────────────────────────────────────────────────────
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ] || exit 1
