@@ -213,3 +213,123 @@ if it_skip_unless_tool eslint-stack; then
     it_expect_silent "$_fast_out" \
         "UC-6: eslint anti-slop/AP-TS-MAINT-006 good fixture (no widening -> no AP-TS-MAINT-006)"
 fi
+
+
+# --------------------------------------------------------------------------- #
+# anti-slop unknown/object signatures → AP-TS-MAINT-007
+# Table loop: each row is its own it_project; assertions are independent (UC-1a..4)
+# Good fixture: concrete named types → silence (UC-7)
+# --------------------------------------------------------------------------- #
+
+while IFS='|' read -r _uc _rule _ts_input; do
+    it_project "eslint-anti-slop-007-${_uc}"; _fast_proj="$_IT_CUR_PROJ"
+    if it_skip_unless_tool eslint-stack; then
+        it_commit "$_fast_proj" package.json '{"type":"module"}'
+        it_commit "$_fast_proj" app.ts 'export {};'
+        it_modify "$_fast_proj" app.ts "$_ts_input"
+        _fast_out=$(CLAUDE_PLUGIN_OPTION_CONFIG_SOURCE=full \
+            it_run "$_fast_proj" "${_fast_proj}/app.ts" fast)
+        it_expect_ap "$_fast_out" AP-TS-MAINT-007 \
+            "${_uc}: anti-slop/${_rule} (isolated -> AP-TS-MAINT-007)"
+    fi
+done <<'MAINT007_CASES'
+UC-1a|no-unknown-parameters|function process(raw: unknown): void { void raw; } export { process };
+UC-1b|no-unknown-type-aliases|type Payload = unknown; export type { Payload };
+UC-2|no-unknown-returns|function build(): unknown { return {}; } export { build };
+UC-3|no-object-parameters|function send(opts: object): void { void opts; } export { send };
+UC-4|no-unsafe-dictionary-type|const cache: { [key: string]: unknown } = {}; export { cache };
+MAINT007_CASES
+
+# --------------------------------------------------------------------------- #
+# anti-slop Reflect.get / Reflect.apply → AP-TS-MAINT-008
+# Table loop: each row is its own it_project; assertions are independent (UC-5..6)
+# Good fixture: direct property access and typed call → silence (UC-7)
+# --------------------------------------------------------------------------- #
+
+while IFS='|' read -r _uc _rule _ts_input; do
+    it_project "eslint-anti-slop-008-${_uc}"; _fast_proj="$_IT_CUR_PROJ"
+    if it_skip_unless_tool eslint-stack; then
+        it_commit "$_fast_proj" package.json '{"type":"module"}'
+        it_commit "$_fast_proj" app.ts 'export {};'
+        it_modify "$_fast_proj" app.ts "$_ts_input"
+        _fast_out=$(CLAUDE_PLUGIN_OPTION_CONFIG_SOURCE=full \
+            it_run "$_fast_proj" "${_fast_proj}/app.ts" fast)
+        it_expect_ap "$_fast_out" AP-TS-MAINT-008 \
+            "${_uc}: anti-slop/${_rule} (isolated -> AP-TS-MAINT-008)"
+    fi
+done <<'MAINT008_CASES'
+UC-5|no-reflect-get|const obj = { id: "u" }; const v = Reflect.get(obj, "id"); export { v };
+UC-6|no-reflect-apply|declare function fn(x: string): string; const r = Reflect.apply(fn, null, ["a"]); export { r };
+MAINT008_CASES
+
+for _ap in 007 008; do
+    it_project "eslint-anti-slop-${_ap}-good"; _fast_proj="$_IT_CUR_PROJ"
+    if it_skip_unless_tool eslint-stack; then
+        it_commit "$_fast_proj" package.json '{"type":"module"}'
+        it_commit "$_fast_proj" app.ts 'export {};'
+        it_modify "$_fast_proj" app.ts \
+            "$(cat "${_IT_FIXTURES}/ts/good/AP-TS-MAINT-${_ap}.ts")"
+        _fast_out=$(CLAUDE_PLUGIN_OPTION_CONFIG_SOURCE=full \
+            it_run "$_fast_proj" "${_fast_proj}/app.ts" fast)
+        it_expect_silent "$_fast_out" \
+            "UC-7: AP-TS-MAINT-${_ap} concrete types and direct access stay quiet"
+    fi
+done
+
+# --------------------------------------------------------------------------- #
+# anti-slop/no-reduce-accumulator-copy → AP-TS-PERF-005 (UC-1)
+# good fixture: in-place accumulator mutation → silence (UC-2)
+# --------------------------------------------------------------------------- #
+
+it_project eslint-anti-slop-perf005-bad; _fast_proj="$_IT_CUR_PROJ"
+if it_skip_unless_tool eslint-stack; then
+    it_commit "$_fast_proj" package.json '{"type":"module"}'
+    it_commit "$_fast_proj" app.ts 'export {};'
+    it_modify "$_fast_proj" app.ts \
+        "$(cat "${_IT_FIXTURES}/ts/bad/AP-TS-PERF-005.ts")"
+    _fast_out=$(CLAUDE_PLUGIN_OPTION_CONFIG_SOURCE=full \
+        it_run "$_fast_proj" "${_fast_proj}/app.ts" fast)
+    it_expect_ap "$_fast_out" AP-TS-PERF-005 \
+        "UC-1: eslint anti-slop/no-reduce-accumulator-copy (bad fixture -> AP-TS-PERF-005)"
+fi
+
+it_project eslint-anti-slop-perf005-good; _fast_proj="$_IT_CUR_PROJ"
+if it_skip_unless_tool eslint-stack; then
+    it_commit "$_fast_proj" package.json '{"type":"module"}'
+    it_commit "$_fast_proj" app.ts 'export {};'
+    it_modify "$_fast_proj" app.ts \
+        "$(cat "${_IT_FIXTURES}/ts/good/AP-TS-PERF-005.ts")"
+    _fast_out=$(CLAUDE_PLUGIN_OPTION_CONFIG_SOURCE=full \
+        it_run "$_fast_proj" "${_fast_proj}/app.ts" fast)
+    it_expect_silent "$_fast_out" \
+        "UC-2: eslint AP-TS-PERF-005 good fixture (in-place accumulator -> no AP-TS-PERF-005)"
+fi
+
+# --------------------------------------------------------------------------- #
+# anti-slop/no-module-mocking → AP-TS-MAINT-009 (UC-3)
+# good fixture: targeted vi.spyOn → silence (UC-4)
+# --------------------------------------------------------------------------- #
+
+it_project eslint-anti-slop-maint009-bad; _fast_proj="$_IT_CUR_PROJ"
+if it_skip_unless_tool eslint-stack; then
+    it_commit "$_fast_proj" package.json '{"type":"module"}'
+    it_commit "$_fast_proj" app.ts 'export {};'
+    it_modify "$_fast_proj" app.ts \
+        "$(cat "${_IT_FIXTURES}/ts/bad/AP-TS-MAINT-009.ts")"
+    _fast_out=$(CLAUDE_PLUGIN_OPTION_CONFIG_SOURCE=full \
+        it_run "$_fast_proj" "${_fast_proj}/app.ts" fast)
+    it_expect_ap "$_fast_out" AP-TS-MAINT-009 \
+        "UC-3: eslint anti-slop/no-module-mocking (bad fixture -> AP-TS-MAINT-009)"
+fi
+
+it_project eslint-anti-slop-maint009-good; _fast_proj="$_IT_CUR_PROJ"
+if it_skip_unless_tool eslint-stack; then
+    it_commit "$_fast_proj" package.json '{"type":"module"}'
+    it_commit "$_fast_proj" app.ts 'export {};'
+    it_modify "$_fast_proj" app.ts \
+        "$(cat "${_IT_FIXTURES}/ts/good/AP-TS-MAINT-009.ts")"
+    _fast_out=$(CLAUDE_PLUGIN_OPTION_CONFIG_SOURCE=full \
+        it_run "$_fast_proj" "${_fast_proj}/app.ts" fast)
+    it_expect_silent "$_fast_out" \
+        "UC-4: eslint AP-TS-MAINT-009 good fixture (targeted spyOn -> no AP-TS-MAINT-009)"
+fi

@@ -4,10 +4,9 @@ type UserId = string;
 const FLAGS = ['read', 'write'] as const;  // as const is allowed
 
 // Simulate input from an external boundary (truly unknown, not widened)
-declare function readClaim(): unknown;
-const raw = readClaim();
+declare const raw: unknown;
 
-// SAFETY: readClaim() always returns a non-empty string from the validated JWT
+// SAFETY: the validated JWT claim at this boundary is always a non-empty string
 const id = raw as UserId;
 
 export { FLAGS, id };

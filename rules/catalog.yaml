@@ -1213,6 +1213,24 @@
   prevent_in_skill: true
   references: []
 
+- id: AP-TS-PERF-005
+  title: O(n²) reduce accumulator copying
+  language: [typescript]
+  frameworks: [plain]
+  category: performance
+  severity: warn
+  cwe: []
+  summary: Copying the accumulator on every reduce iteration (`Object.assign({}, acc, …)`, `Array.from(acc)`, `acc.concat(…)`, `acc.slice()` and similar) copies every earlier result at each step, making the whole operation O(n²). Spread copies (`{ ...acc }`) have the same cost; the pinned ESLint detector reports the non-spread forms only. Mutate a locally owned accumulator and return it.
+  skill_line: Never copy or spread the accumulator in `reduce`; mutate in place (`acc[key] = val; return acc`).
+  bad: |
+    const index = items.reduce<Record<string, Item>>((acc, x) => Object.assign({}, acc, { [x.id]: x }), {});
+  good: |
+    const index = items.reduce<Record<string, Item>>((acc, x) => { acc[x.id] = x; return acc; }, {});
+  detect:
+    - { tool: eslint, rule: "anti-slop/no-reduce-accumulator-copy" }
+  prevent_in_skill: true
+  references: []
+
 - id: AP-TS-MAINT-001
   title: any type, non-null assertions, or unsafe casts on external data
   language: [typescript]
@@ -1339,6 +1357,79 @@
   detect:
     - { tool: eslint, rule: "anti-slop/no-known-value-widening" }
     - { tool: eslint, rule: "anti-slop/no-widen-then-assert" }
+  prevent_in_skill: true
+  references: []
+
+- id: AP-TS-MAINT-007
+  title: Parameters, return types, or aliases typed as `unknown` or `object`
+  language: [typescript]
+  frameworks: [plain]
+  category: maintainability
+  severity: warn
+  cwe: []
+  summary: Using `unknown`, `object`, or `{ [key: string]: unknown }` as a parameter type, return type, or type alias carries no structural information and forces callers to re-validate what the type system should already know. Use a concrete, named interface or type instead. Every boundary that receives external data must validate with a schema library and expose a narrowed type; downstream code should not see `unknown`.
+  skill_line: No `unknown`/`object` parameters, returns, or aliases; use named interfaces and validate at boundaries.
+  bad: |
+    function process(raw: unknown): void {}
+    function build(): unknown { return {}; }
+    type Payload = unknown;
+    function send(opts: object): void {}
+    const cache: { [key: string]: unknown } = {};
+  good: |
+    interface RawInput { id: string; value: number }
+    function process(raw: RawInput): void {}
+    interface Result { id: string }
+    function build(): Result { return { id: 'x' }; }
+    type Payload = { id: string; ts: number };
+    interface SendOptions { timeout: number }
+    function send(opts: SendOptions): void {}
+    const cache: Record<string, string> = {};
+  detect:
+    - { tool: eslint, rule: "anti-slop/no-unknown-parameters" }
+    - { tool: eslint, rule: "anti-slop/no-unknown-returns" }
+    - { tool: eslint, rule: "anti-slop/no-unknown-type-aliases" }
+    - { tool: eslint, rule: "anti-slop/no-object-parameters" }
+    - { tool: eslint, rule: "anti-slop/no-unsafe-dictionary-type" }
+  prevent_in_skill: true
+  references: []
+
+- id: AP-TS-MAINT-008
+  title: Reflect API bypasses TypeScript property-access and call-site checks
+  language: [typescript]
+  frameworks: [plain]
+  category: maintainability
+  severity: warn
+  cwe: []
+  summary: Reflect.get and Reflect.apply operate on property names as strings and argument lists as arrays, bypassing the TypeScript type checker's property-access and call-site validation entirely. Use direct property access (obj.id) and typed function calls instead; the type system can then catch misspelled property names and wrong argument counts at compile time.
+  skill_line: Replace `Reflect.get`/`Reflect.apply` with direct property access and typed function calls.
+  bad: |
+    const v = Reflect.get(obj, 'id');
+    const r = Reflect.apply(fn, null, [arg]);
+  good: |
+    const v = obj.id;
+    const r = fn(arg);
+  detect:
+    - { tool: eslint, rule: "anti-slop/no-reflect-get" }
+    - { tool: eslint, rule: "anti-slop/no-reflect-apply" }
+  prevent_in_skill: true
+  references: []
+
+- id: AP-TS-MAINT-009
+  title: Whole-module mock replaces the module contract instead of targeting one export
+  language: [typescript]
+  frameworks: [plain]
+  category: maintainability
+  severity: warn
+  cwe: []
+  summary: Replacing an entire module with jest.mock() or vi.mock() couples the test to the module's internal structure rather than its public contract. Any refactor that moves a function to a different file breaks every test that mocks the module, even when the behavior is unchanged. Use vi.spyOn or jest.spyOn to replace only the specific export the test needs to control; the rest of the module runs its real implementation.
+  skill_line: Replace `jest.mock`/`vi.mock` full-module replacement with `vi.spyOn`/`jest.spyOn` on specific exports.
+  bad: |
+    jest.mock('../auth');
+  good: |
+    import * as auth from '../auth';
+    vi.spyOn(auth, 'getUser').mockReturnValue(fakeUser);
+  detect:
+    - { tool: eslint, rule: "anti-slop/no-module-mocking" }
   prevent_in_skill: true
   references: []
 

@@ -4,9 +4,8 @@ const obj = { id: 'abc' };
 const result = obj;
 
 // OK: assertion on a value that is already unknown from an external boundary
-declare function parsePayload(): unknown;
-const raw = parsePayload();
-// SAFETY: parsePayload() returns { id: string } from the validated session token
+declare const raw: unknown;
+// SAFETY: the validated session token payload at this boundary is { id: string }
 const parsed = raw as { id: string };
 
 export { result, parsed };

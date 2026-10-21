@@ -248,3 +248,48 @@ rules:
     severity: warn
     category: maintainability
     cwe: ""
+  "anti-slop/no-unknown-parameters":
+    ap_id: AP-TS-MAINT-007
+    severity: warn
+    category: maintainability
+    cwe: ""
+  "anti-slop/no-unknown-returns":
+    ap_id: AP-TS-MAINT-007
+    severity: warn
+    category: maintainability
+    cwe: ""
+  "anti-slop/no-unknown-type-aliases":
+    ap_id: AP-TS-MAINT-007
+    severity: warn
+    category: maintainability
+    cwe: ""
+  "anti-slop/no-object-parameters":
+    ap_id: AP-TS-MAINT-007
+    severity: warn
+    category: maintainability
+    cwe: ""
+  "anti-slop/no-unsafe-dictionary-type":
+    ap_id: AP-TS-MAINT-007
+    severity: warn
+    category: maintainability
+    cwe: ""
+  "anti-slop/no-reflect-get":
+    ap_id: AP-TS-MAINT-008
+    severity: warn
+    category: maintainability
+    cwe: ""
+  "anti-slop/no-reflect-apply":
+    ap_id: AP-TS-MAINT-008
+    severity: warn
+    category: maintainability
+    cwe: ""
+  "anti-slop/no-reduce-accumulator-copy":
+    ap_id: AP-TS-PERF-005
+    severity: warn
+    category: performance
+    cwe: ""
+  "anti-slop/no-module-mocking":
+    ap_id: AP-TS-MAINT-009
+    severity: warn
+    category: maintainability
+    cwe: ""

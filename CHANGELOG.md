@@ -3,6 +3,16 @@
 All notable changes to Slop Guard will be documented in this file.
 
 ## Unreleased
+- **AP-TS-PERF-005 and AP-TS-MAINT-009 added** (GH-42-c, 2026-10-20)
+  Warn on quadratic reduce-accumulator copying and whole-module `jest.mock`/`vi.mock`.
+  Catalogue, ESLint mappings and generated skills include both rules; isolated bad/good
+  fixtures contrast accumulator mutation and targeted spies with the flagged patterns.
+
+- **AP-TS-MAINT-007 and AP-TS-MAINT-008 added** (GH-42-b, 2026-10-20)
+  Five warn-level anti-slop rules flag `unknown`/`object` signatures and unsafe dictionaries;
+  two flag `Reflect.get`/`Reflect.apply` bypasses. Catalogue, ESLint mappings and prevention
+  skills include all seven rules, with isolated rule probes and compliant-fixture checks.
+
 - **@spacemansh/anti-slop 0.3.0 wired; AP-TS-MAINT-005 (chained/uncommented assertions) and AP-TS-MAINT-006 (widen-then-assert) added** (GH-42-a, 2026-10-20)
 
   **Why.** Agents write code that passes the type checker by fabricating type evidence — `(y as unknown) as Foo`, an unexplained `as User`, a known value widened to `unknown` and asserted back. These patterns are invisible to `@typescript-eslint/no-explicit-any` (AP-TS-MAINT-001) because they use `as` rather than `any`. dmmulroy/anti-slop catalogues four rules that name them; this slice wires the two that fire on assertion evidence specifically.
