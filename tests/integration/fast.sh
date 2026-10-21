@@ -276,6 +276,22 @@ for _ap in 007 008; do
     fi
 done
 
+# The combined bad fixtures: every declaration in the file is one of the
+# slice's rules, so the whole file must report without false positives.
+for _ap in 007 008; do
+    it_project "eslint-anti-slop-${_ap}-combined"; _fast_proj="$_IT_CUR_PROJ"
+    if it_skip_unless_tool eslint-stack; then
+        it_commit "$_fast_proj" package.json '{"type":"module"}'
+        it_commit "$_fast_proj" app.ts 'export {};'
+        it_modify "$_fast_proj" app.ts \
+            "$(cat "${_IT_FIXTURES}/ts/bad/AP-TS-MAINT-${_ap}.ts")"
+        _fast_out=$(CLAUDE_PLUGIN_OPTION_CONFIG_SOURCE=full \
+            it_run "$_fast_proj" "${_fast_proj}/app.ts" fast)
+        it_expect_ap "$_fast_out" "AP-TS-MAINT-${_ap}" \
+            "UC-1: AP-TS-MAINT-${_ap} combined bad fixture reports its rule"
+    fi
+done
+
 # --------------------------------------------------------------------------- #
 # anti-slop/no-reduce-accumulator-copy → AP-TS-PERF-005 (UC-1)
 # good fixture: in-place accumulator mutation → silence (UC-2)

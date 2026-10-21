@@ -4,14 +4,27 @@ All notable changes to Slop Guard will be documented in this file.
 
 ## Unreleased
 - **AP-TS-PERF-005 and AP-TS-MAINT-009 added** (GH-42-c, 2026-10-20)
-  Warn on quadratic reduce-accumulator copying and whole-module `jest.mock`/`vi.mock`.
+
+  **Why.** Spreading the accumulator on every `reduce` iteration is O(n²) work with no
+  type-system signal, and its mechanical fix (mutate in place) is safe to demand; whole-module
+  `jest.mock`/`vi.mock` couples the suite to internal module structure instead of the public
+  contract. `@spacemansh/anti-slop` 0.3.0 ships both rules; the detector reports the
+  non-spread copy forms (`Object.assign`, `Array.from`, array-copy methods) — spread copies
+  stay a prevention-only skill line.
+
   Catalogue, ESLint mappings and generated skills include both rules; isolated bad/good
   fixtures contrast accumulator mutation and targeted spies with the flagged patterns.
 
 - **AP-TS-MAINT-007 and AP-TS-MAINT-008 added** (GH-42-b, 2026-10-20)
-  Five warn-level anti-slop rules flag `unknown`/`object` signatures and unsafe dictionaries;
-  two flag `Reflect.get`/`Reflect.apply` bypasses. Catalogue, ESLint mappings and prevention
-  skills include all seven rules, with isolated rule probes and compliant-fixture checks.
+
+  **Why.** Agents reach for `unknown`, `object` and `{ [key: string]: unknown }` when they
+  cannot determine a shape, pushing validation onto every call site, and for
+  `Reflect.get`/`Reflect.apply` to bypass property and call-site checks entirely. Seven
+  `@spacemansh/anti-slop` rules name both escapes.
+
+  Five warn-level rules flag `unknown`/`object` signatures and unsafe dictionaries; two flag
+  `Reflect` bypasses. Catalogue, ESLint mappings and prevention skills include all seven
+  rules, with isolated rule probes and compliant-fixture checks.
 
 - **@spacemansh/anti-slop 0.3.0 wired; AP-TS-MAINT-005 (chained/uncommented assertions) and AP-TS-MAINT-006 (widen-then-assert) added** (GH-42-a, 2026-10-20)
 

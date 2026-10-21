@@ -425,13 +425,12 @@ else
         D36_FAILURES=$(( D36_FAILURES + 1 ))
     fi
 
-    # Verify "added as AP-ID (GH-42-a)" and "covered by AP-ID" rows: those IDs
-    # must exist in catalog.yaml.  Future-slice rows (GH-42-b, GH-42-c) are not
-    # checked here — their AP-ids land when those slices are implemented.
+    # Verify "added as AP-ID (GH-42-a/b/c)" and "covered by AP-ID" rows: those IDs
+    # must exist in catalog.yaml now that all three slices are implemented.
     D36_ID_FAILURES=0
     while IFS= read -r line; do
         case "$line" in
-            *"(GH-42-a)"*|*"covered by \`AP-"*)
+            *"(GH-42-a)"*|*"(GH-42-b)"*|*"(GH-42-c)"*|*"covered by \`AP-"*)
                 ap_id="$(printf '%s' "$line" | grep -oE '`AP-[A-Z0-9-]+`' \
                     | head -1 | tr -d '`')"
                 [ -n "$ap_id" ] || continue
@@ -444,9 +443,8 @@ else
                 fi ;;
         esac
     done < "$DECISIONS"
-
     [ "$D36_ID_FAILURES" -eq 0 ] && \
-        ok "UC-1: all GH-42-a 'added as'/'covered by' AP-ids in D36 exist in catalog.yaml"
+        ok "UC-1: all GH-42-a/b/c 'added as'/'covered by' AP-ids in D36 exist in catalog.yaml"
 fi
 
 # ─── 18. UC-2: @spacemansh/anti-slop 0.3.0 declared in package.json ──────────
