@@ -25,7 +25,7 @@ Checks run automatically after each edit. Findings reference the IDs below.
 ## Warnings
 - AP-TS-PERF-004 — Cancel fetches on cleanup with `AbortController`; prefer a data-fetching library.
 - AP-TS-PERF-005 — Never copy or spread the accumulator in `reduce`; mutate in place (`acc[key] = val; return acc`).
-- AP-TS-MAINT-001 — Validate external data at the boundary (e.g. zod); avoid `any`, `!`, and unsafe `as` casts.
+- AP-TS-MAINT-001 — Validate external data at the boundary (e.g. zod); avoid `any`, `!`, unsafe `as`, and never `as unknown as T`.
 - AP-TS-MAINT-005 — No chained `as` casts; put `// SAFETY: <reason>` above every type assertion.
 - AP-TS-MAINT-006 — Don't widen a known value to `unknown` to assert it into another type; use the original type.
 - AP-TS-MAINT-007 — No `unknown`/`object` parameters, returns, or aliases; use named interfaces and validate at boundaries.

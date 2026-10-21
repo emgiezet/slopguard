@@ -68,31 +68,16 @@ rules:
     metadata:
       ap_id: AP-PHP-PERF-003
       category: performance
-    pattern-either:
-      - pattern: |
-          foreach (...) {
-            ...
-            $Model->find($ID);
-            ...
-          }
-      - pattern: |
-          foreach (...) {
-            ...
-            $Model::find($ID);
-            ...
-          }
-      - pattern: |
-          foreach (...) {
-            ...
-            $Model->where(...)->first();
-            ...
-          }
-      - pattern: |
-          foreach (...) {
-            ...
-            $Model->where(...)->get();
-            ...
-          }
+    patterns:
+      - pattern-inside: |
+          foreach ($ITEMS as $ITEM) { ... }
+      - pattern-either:
+          - pattern: $MODEL::find(...)
+          - pattern: $MODEL->find(...)
+          - pattern: $MODEL::where(...)->first()
+          - pattern: $MODEL->where(...)->first()
+          - pattern: $MODEL::where(...)->get()
+          - pattern: $MODEL->where(...)->get()
 
   - id: slopguard.php.laravel.unbounded-all
     languages: [php]

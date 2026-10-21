@@ -18,7 +18,7 @@ changed and why. Work one file at a time. Never rewrite a whole directory in one
 Apply in this priority; each category is a separate pass:
 
 1. **Dead and unreachable code** — unused symbols, unused imports, unreachable branches, unused parameters.
-2. **Duplicated blocks** — extract any block appearing three or more times, or any block of five or more body lines appearing twice; a declaration or signature line does not count toward the five. Two occurrences of three or fewer lines: leave alone.
+2. **Duplicated blocks** — extract any block appearing three or more times, or any block of five or more body lines appearing twice; a declaration or signature line does not count toward the five. Two occurrences of three or fewer lines: leave alone. jscpd reports textual clones; extract only when the copies are behaviourally the same — same inputs, same failure handling, same state touched. Blocks that differ in a visibility rule, a payload field or an error path stay separate. Deletion test: the extraction must remove more lines than it adds, counting the helper and its call sites; otherwise leave both copies and report that.
 3. **Speculative abstraction** — interfaces with one implementor, factories that build one type, config knobs with one caller, wrappers that only forward. When the abstraction is itself public API, keep the name and collapse what sits behind it.
 4. **Functions that do more than one thing** — split only when responsibilities separate cleanly. Function length and cyclomatic complexity are supporting signals only; neither justifies a rewrite on its own.
 5. **Standard library replacements** — hand-rolled code that duplicates a stdlib or existing project helper.

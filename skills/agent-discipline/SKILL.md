@@ -22,5 +22,6 @@ Enforced by pre-write and pre-bash policies. Full text on invocation.
 ## Warnings
 - AP-AGENT-007 — Restrict edits to the lines required by the task; do not reformat or refactor out of scope.
 - AP-AGENT-008 — Before calling any framework API, verify the version-specific docs via Context7.
+- AP-AGENT-011 — Resolve a finding by establishing its guarantee (parse, narrow, test the failure path), not by moving a cast or renaming a check.
 
 Details for any ID: `reference/<ID>.md`

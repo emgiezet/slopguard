@@ -1238,17 +1238,22 @@
   category: maintainability
   severity: warn
   cwe: [CWE-20]
-  summary: Widening types to `any` or forcing non-null with `!` defeats TypeScript's safety guarantees. Validate and narrow external data at the boundary using a schema library, then the rest of the code can rely on correct types without assertions.
-  skill_line: Validate external data at the boundary (e.g. zod); avoid `any`, `!`, and unsafe `as` casts.
+  summary: Widening types to `any` or forcing non-null with `!` defeats TypeScript's safety guarantees. The double cast `x as unknown as T` is the same defeat in one expression — it exists only to silence the error a direct cast would raise, and a value that was already typed by a schema or a typed function loses nothing but the detour. Validate and narrow external data at the boundary using a schema library, then the rest of the code can rely on correct types without assertions.
+  skill_line: Validate external data at the boundary (e.g. zod); avoid `any`, `!`, unsafe `as`, and never `as unknown as T`.
   bad: |
     const user = JSON.parse(body) as User;      // unchecked cast
     return user.profile!.name;                  // may panic at runtime
+    const account = accountSchema.parse(input);
+    const generic: Record<string, unknown> = account;
+    return generic as unknown as Account;       // validated → widened → asserted back
   good: |
     const user = UserSchema.parse(JSON.parse(body));  // throws on invalid shape
     return user.profile?.name ?? 'anonymous';
+    return accountSchema.parse(input);                // the parse already returns Account
   detect:
     - { tool: eslint, rule: "@typescript-eslint/no-explicit-any" }
     - { tool: eslint, rule: "@typescript-eslint/no-non-null-assertion" }
+    - { tool: opengrep, rule: slopguard.ts.double-cast }
   prevent_in_skill: true
   references:
     - https://cwe.mitre.org/data/definitions/20.html
@@ -2577,6 +2582,27 @@
   good: |
     npm install some-package@3.2.1
     go get github.com/example/lib@v3.2.1
+  detect: []
+  prevent_in_skill: true
+  references: []
+
+- id: AP-AGENT-011
+  title: Clearing a finding without establishing the guarantee it protects
+  language: [agent]
+  frameworks: []
+  category: agent
+  severity: warn
+  cwe: []
+  summary: A warning is a convenient target — it disappears when the flagged token is gone, whether or not the program gained anything. Replacing a broad parameter type with one derived from the caller clears the type warning while the input stays unvalidated; deleting a `typeof` guard clears the pattern while the message is still dispatched unparsed; moving a cast one line up, or commenting "already validated", changes nothing the runtime can see. A finding is resolved when the program can show what the rule asked for — the value is parsed or narrowed at its source, the failure path is handled and has a test that exercises it — not when the linter stops mentioning it.
+  skill_line: Resolve a finding by establishing its guarantee (parse, narrow, test the failure path), not by moving a cast or renaming a check.
+  bad: |
+    // before: handler(msg: object)             — AP-TS-MAINT-001 on `object`
+    // after:  handler(msg: ReturnType<typeof resolve>)   — warning gone, msg still unparsed
+    // before: if (typeof msg.type !== 'string') return;  dispatch(msg);
+    // after:  dispatch(msg);                               — check gone, defect kept
+  good: |
+    // after:  const cmd = CommandSchema.parse(msg);  dispatch(cmd);
+    //         + a test that feeds a malformed msg and asserts dispatch is not called
   detect: []
   prevent_in_skill: true
   references: []

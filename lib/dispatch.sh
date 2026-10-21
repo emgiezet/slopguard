@@ -1253,12 +1253,14 @@ _dispatch_run_opengrep() {
     fi
 
     local raw exit_code=0
+    # No --metrics flag: opengrep has none and rejects it as a usage error,
+    # which the fail-open branch below would swallow as "no findings".
     # shellcheck disable=SC2086  # extra_rules intentional word-split
     raw="$(timeout "$(_dispatch_medium_timeout)" \
         "$tool_bin" scan \
         --config "$rules_dir" \
         ${extra_rules:+--config "$extra_rules"} \
-        --json --metrics=off --quiet \
+        --json --quiet \
         "$file" 2>/dev/null)" || exit_code=$?
     # 0 = no findings, 1 = findings found; others = tool error → fail-open.
     [ "$exit_code" -eq 0 ] || [ "$exit_code" -eq 1 ] || return 0
@@ -1269,6 +1271,10 @@ _dispatch_run_opengrep() {
     local rule_id msg line meta_ap ap_id severity category cwe_str cwe_json fix snippet lookup
     while IFS=$'\t' read -r rule_id msg line meta_ap; do
         [ -n "$rule_id" ] || continue
+        # check_id carries the dotted config path as a prefix
+        # (home.user.….rules.opengrep.slopguard.ts.double-cast); the mapping
+        # file and the catalogue know the rule by its bare id.
+        case "$rule_id" in *.opengrep.*) rule_id="${rule_id##*.opengrep.}" ;; esac
         snippet="$(printf '%s' "$msg" | head -c 120)"
         lookup="$(_dispatch_map_lookup "$mapping" "$rule_id")"
         if [ -n "$lookup" ]; then

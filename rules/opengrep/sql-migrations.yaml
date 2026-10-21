@@ -44,7 +44,10 @@ rules:
               });
 
   - id: slopguard.migration.not-null-without-default
-    languages: [sql]
+    # Opengrep has no sql parser; the rule is regex-only, so generic + a path filter.
+    languages: [generic]
+    paths:
+      include: ['*.sql']
     message: >-
       ADD COLUMN with NOT NULL and no DEFAULT on a populated table requires a
       full rewrite and an exclusive lock. Either add the column nullable first,

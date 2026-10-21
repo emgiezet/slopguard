@@ -28,7 +28,7 @@ rules:
       category: security
       cwe: CWE-494
     patterns:
-      - pattern-regex: '^\s+image:\s+["\']?[^@\s]+:[^@\s]+["\']?\s*$'
+      - pattern-regex: '^\s+image:\s+["'']?[^@\s]+:[^@\s]+["'']?\s*$'
       - pattern-not-regex: '^\s+image:\s+.*@sha256:'
 
   - id: slopguard.gitlab.include-remote

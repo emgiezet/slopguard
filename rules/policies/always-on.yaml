@@ -100,6 +100,21 @@ rules:
     severity: warn
     spec_ref: "§8.8"
 
+  - id: AP-AGENT-011
+    title: Clearing a finding without establishing its guarantee
+    description: >-
+      A finding is resolved when the program can show what the rule asked for —
+      the value is parsed or narrowed at its source, the failure path is handled
+      and tested — not when the flagged token is gone. Swapping a broad type for
+      a derived one while the input stays unvalidated, deleting a guard while the
+      data is still dispatched unparsed, moving a cast, or adding an "already
+      validated" comment all clear the warning and keep the defect. Not
+      detectable by a hook; prevention lives in the skill digest.
+    enforcement: skill
+    decision: warn
+    severity: warn
+    spec_ref: "§8.8"
+
 skill_reference: agent-discipline
 digest_max_lines: 15
 digest_max_chars: 1500

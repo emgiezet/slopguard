@@ -49,5 +49,22 @@ rules:
       - pattern: <$TAG href={$VAR}>...</$TAG>
       - pattern: <$TAG src={$VAR} .../>
       - pattern: <$TAG src={$VAR}>...</$TAG>
-      - pattern: React.createElement($TAG, {href: $VAR, ...})
-      - pattern: React.createElement($TAG, {src: $VAR, ...})
+      - pattern: "React.createElement($TAG, {href: $VAR, ...})"
+      - pattern: "React.createElement($TAG, {src: $VAR, ...})"
+
+  - id: slopguard.ts.double-cast
+    languages: [typescript]
+    message: >-
+      `as unknown as T` tells the compiler nothing about the value; it only
+      removes the error that a direct cast would raise. If the value came from
+      a schema or a typed function, keep that return type instead of widening
+      and re-asserting. If it came from outside, parse it (schema.parse) or
+      narrow it with a type guard so the type is established, not declared.
+    severity: ERROR
+    metadata:
+      ap_id: AP-TS-MAINT-001
+      category: maintainability
+      cwe: CWE-20
+    pattern-either:
+      - pattern: $X as unknown as $T
+      - pattern: <$T>(<unknown>$X)

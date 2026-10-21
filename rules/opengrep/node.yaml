@@ -98,9 +98,9 @@ rules:
     pattern-either:
       - patterns:
           - pattern: jwt.verify($TOKEN, $SECRET)
-          - pattern-not: jwt.verify($TOKEN, $SECRET, {algorithms: [...], ...}, ...)
-          - pattern-not: jwt.verify($TOKEN, $SECRET, {$...OPT}, ...)
+          - pattern-not: "jwt.verify($TOKEN, $SECRET, {algorithms: [...], ...}, ...)"
+          - pattern-not: "jwt.verify($TOKEN, $SECRET, {$...OPT}, ...)"
       - patterns:
           - pattern: $JWT.verify($TOKEN, $SECRET)
-          - pattern-not: $JWT.verify($TOKEN, $SECRET, {algorithms: [...], ...}, ...)
-          - pattern-not: $JWT.verify($TOKEN, $SECRET, {$...OPT}, ...)
+          - pattern-not: "$JWT.verify($TOKEN, $SECRET, {algorithms: [...], ...}, ...)"
+          - pattern-not: "$JWT.verify($TOKEN, $SECRET, {$...OPT}, ...)"

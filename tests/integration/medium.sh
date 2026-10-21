@@ -7,6 +7,7 @@
 #   golangci-lint — gosec G201 (fmt.Sprintf SQL) → AP-GO-SEC-002  (tracked+modified)
 #   tflint        — terraform_required_version → AP-TF-MAINT-003  (untracked; CONFIG_SOURCE=full)
 #   checkov (M)   — CKV2_AWS_62 (S3 event notifications) → AP-TF-SEC-018  (untracked)
+#   opengrep      — slopguard.ts.double-cast → AP-TS-MAINT-001  (untracked; CONFIG_SOURCE=full)
 #
 # Design notes
 # ------------
@@ -188,4 +189,60 @@ if it_skip_unless_tool checkov; then
     _it_med_ckv_good_out="$(it_run "${_it_med_ckv_good}" "${_it_med_ckv_good}/main.tf" medium)"
     it_expect_silent "$_it_med_ckv_good_out" \
         "checkov (M): compliant TF produces no finding"
+fi
+
+# =========================================================================== #
+# 5. opengrep — slopguard.ts.double-cast → AP-TS-MAINT-001
+# =========================================================================== #
+# The only medium-tier case that loads the whole rules/opengrep/ directory the
+# way the dispatcher does. One invalid sibling file makes opengrep exit 2 and
+# the dispatcher fail open, so this case proves every rule file parses, not
+# just the one it asserts on. The mapping lookup needs the bare rule id, which
+# opengrep prefixes with the dotted config path — covered here too.
+
+it_project "opengrep-bad"
+_it_med_og_bad="$_IT_CUR_PROJ"
+_og_ts_setup() {
+    cat > "$1/tsconfig.json" <<'OGTS'
+{ "compilerOptions": { "strict": true, "noEmit": true, "lib": ["ES2020", "DOM"] },
+  "include": ["*.ts"] }
+OGTS
+    cat > "$1/schema.ts" <<'OGSCHEMA'
+export interface Account { id: string }
+export interface TokenEnvelope { token: string }
+export const accountSchema = {
+    parse: (input: unknown): Account => ({ id: String(input) }),
+};
+export const tokenSchema = {
+    parse: (input: unknown): TokenEnvelope => ({ token: String(input) }),
+};
+OGSCHEMA
+}
+_og_ts_setup "${_it_med_og_bad}"
+if it_skip_unless_tool opengrep; then
+    cp "${_IT_FIXTURES}/ts/bad/AP-TS-MAINT-001.ts" "${_it_med_og_bad}/cast.ts"
+
+    _it_med_og_out="$(CLAUDE_PLUGIN_OPTION_CONFIG_SOURCE=full \
+        it_run "${_it_med_og_bad}" "${_it_med_og_bad}/cast.ts" medium)"
+    it_expect_ap "$_it_med_og_out" "AP-TS-MAINT-001" \
+        "opengrep: as unknown as T → AP-TS-MAINT-001"
+    # Mapped severity is error; the metadata fallback would also say error but
+    # category security — the tool_rule in the line proves the mapping matched.
+    if printf '%s\n' "$_it_med_og_out" | grep -qF '[opengrep:slopguard.ts.double-cast]'; then
+        it_ok "opengrep: check_id prefix stripped; mapping matched by bare rule id"
+    else
+        it_bad "opengrep: check_id prefix stripped; mapping matched by bare rule id" \
+            "$(printf '%s' "$_it_med_og_out" | head -c 400)"
+    fi
+
+    it_project "opengrep-good"
+    _it_med_og_good="$_IT_CUR_PROJ"
+    it_skip_unless_tool opengrep  # re-symlinks; never skips here
+    _og_ts_setup "${_it_med_og_good}"
+    cp "${_IT_FIXTURES}/ts/good/AP-TS-MAINT-001.ts" "${_it_med_og_good}/cast.ts"
+
+    _it_med_og_good_out="$(CLAUDE_PLUGIN_OPTION_CONFIG_SOURCE=full \
+        it_run "${_it_med_og_good}" "${_it_med_og_good}/cast.ts" medium)"
+    it_expect_silent "$_it_med_og_good_out" \
+        "opengrep: schema-typed boundary produces no finding"
 fi

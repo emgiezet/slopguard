@@ -41,14 +41,12 @@ rules:
     metadata:
       ap_id: AP-RS-SEC-003
       category: security
+    # Opengrep's Rust attribute pattern matches only the attribute line, so a
+    # structural pattern-not for #[serde(deny_unknown_fields)] never sees it.
+    # The regex spans attribute → item keyword; the negation runs on that span.
     patterns:
-      - pattern: |
-          #[derive($...DERIVES)]
-          struct $S {
-            $...FIELDS
-          }
-      - pattern-regex: 'derive\([^)]*Deserialize[^)]*\)'
-      - pattern-not-regex: 'serde\s*\([^)]*deny_unknown_fields[^)]*\)'
+      - pattern-regex: '#\[derive\([^)]*Deserialize[^)]*\)\]\s*(#\[[^\]]*\]\s*)*(pub(\([^)]*\))?\s+)?(struct|enum)\s+\w+'
+      - pattern-not-regex: 'deny_unknown_fields'
 
   - id: slopguard.rs.integer-arithmetic-overflow
     languages: [rust]
