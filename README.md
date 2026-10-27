@@ -10,7 +10,7 @@ package so you can call `slopguard` directly from scripts and CI.
 
 > **Status:** the PyPI package is not yet published.  Install from source
 > (see [As a PyPI package](#as-a-pypi-package)) or use the plugin directly.
-> Once published: `pip install slopguard`.
+> Once published: `pip install aisdlc-guard` (command: `slopguard`).
 
 ---
 
@@ -74,7 +74,7 @@ uv tool install git+https://github.com/emgiezet/slopguard.git
 slopguard version
 ```
 
-Once published, `pip install slopguard` or `uv tool install slopguard` works.
+Once published, `pip install aisdlc-guard` or `uv tool install aisdlc-guard` works.
 For local tool setup, use `slopguard doctor` and `slopguard doctor --install`.
 
 The wheel bundles the complete plugin tree (hooks, rules, skills, configs,
@@ -350,7 +350,7 @@ Use the `SLOPGUARD_TEST_BIN` env var to skip the build step and point at an
 already-installed binary:
 
 ```bash
-pip install dist/slopguard-*.whl
+pip install dist/aisdlc_guard-*.whl
 SLOPGUARD_TEST_BIN="$(which slopguard)" pytest tests/python/ -v
 ```
 
@@ -384,8 +384,8 @@ workflow; do not remove either control.
 **First-time PyPI setup (owner action):**
 
 1. In your PyPI account's Publishing settings, create a **pending publisher**
-   for the not-yet-published `slopguard` project:
-   - PyPI project: `slopguard`
+   for the not-yet-published `aisdlc-guard` distribution (the command stays `slopguard`):
+   - PyPI project: `aisdlc-guard`
    - GitHub owner: `emgiezet`
    - Repository: `slopguard`
    - Workflow: `publish.yml`

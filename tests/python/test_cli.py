@@ -92,7 +92,7 @@ class TestVersion:
             r = subprocess.run(
                 [str(venv_python), "-c",
                  "import importlib.metadata; "
-                 "print(importlib.metadata.version('slopguard'))"],
+                 "print(importlib.metadata.version('aisdlc-guard'))"],
                 capture_output=True, text=True,
             )
             assert r.returncode == 0, f"venv Python failed: {r.stderr}"

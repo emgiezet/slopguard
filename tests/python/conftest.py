@@ -12,7 +12,7 @@ Set ``SLOPGUARD_TEST_BIN`` to the absolute path of an already-installed
 ``slopguard`` binary to skip the build step entirely.  CI can pre-install
 the wheel once and export the path:
 
-    pip install dist/slopguard-*.whl
+    pip install dist/aisdlc_guard-*.whl
     SLOPGUARD_TEST_BIN="$(which slopguard)" pytest tests/python/
 """
 from __future__ import annotations
@@ -68,9 +68,9 @@ def slopguard_bin(tmp_path_factory: pytest.TempPathFactory) -> Path:
             pytrace=False,
         )
 
-    wheels = sorted(dist_dir.glob("slopguard-*.whl"))
+    wheels = sorted(dist_dir.glob("aisdlc_guard-*.whl"))
     if not wheels:
-        pytest.fail(f"No slopguard-*.whl found in {dist_dir}", pytrace=False)
+        pytest.fail(f"No aisdlc_guard-*.whl found in {dist_dir}", pytrace=False)
     wheel = wheels[-1]
 
     # Create a clean virtual environment and install the wheel into it.
