@@ -24,10 +24,11 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get install -y jq
 
-      - name: Install jq (macOS)
+      - name: Install jq and GNU coreutils (macOS)
         if: runner.os == 'macOS'
-        run: brew install jq
-
+        run: |
+          brew install jq coreutils
+          echo "$(brew --prefix coreutils)/libexec/gnubin" >> "$GITHUB_PATH"
       - name: Run bash test suite
         run: bash tests/run-tests
 
@@ -39,7 +40,7 @@ jobs:
       fail-fast: false
       matrix:
         python-version: ["3.9", "3.10", "3.11", "3.12"]
-        os: [ubuntu-latest]
+        os: [ubuntu-24.04]
         include:
           # Smoke-test on macOS with the latest Python only.
           - os: macos-latest
@@ -54,10 +55,11 @@ jobs:
       - name: Install jq (Ubuntu)
         if: runner.os == 'Linux'
         run: sudo apt-get install -y jq
-
-      - name: Install jq (macOS)
+      - name: Install jq and GNU coreutils (macOS)
         if: runner.os == 'macOS'
-        run: brew install jq
+        run: |
+          brew install jq coreutils
+          echo "$(brew --prefix coreutils)/libexec/gnubin" >> "$GITHUB_PATH"
 
       - name: Build wheel
         run: |

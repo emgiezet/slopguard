@@ -62,7 +62,9 @@ documentation for the installation method.
 
 ### As a PyPI package
 
-**Requires:** Python ≥ 3.9, `bash`, `jq`.
+**Requires:** Python ≥ 3.9, `bash`, `jq`; on macOS, install GNU coreutils
+(`brew install coreutils`) and put `$(brew --prefix coreutils)/libexec/gnubin`
+on `PATH` for the Bash hooks (`timeout`, `touch -d`, and related commands).
 
 ```bash
 pip install slopguard
