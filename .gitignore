@@ -1,0 +1,32 @@
+# Python build artifacts
+dist/
+build/
+*.egg-info/
+__pycache__/
+*.pyc
+*.pyo
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+.venv-test/
+
+# pytest / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# macOS
+.DS_Store
+
+# Editor
+.idea/
+.vscode/
+
+# Slop Guard managed tool installations (stored in CLAUDE_PLUGIN_DATA, not here)
+# If someone sets CLAUDE_PLUGIN_DATA=. during testing:
+tools/jq/
+tools/opengrep/
+tools/*/current/
