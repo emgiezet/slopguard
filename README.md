@@ -8,12 +8,9 @@ background medium-tier check after each edit batch, and a slow gate at turn end
 before the agent declares completion.  It also ships as a standalone PyPI
 package so you can call `slopguard` directly from scripts and CI.
 
-```
-pip install slopguard
-slopguard version
-slopguard doctor
-slopguard deps-check
-```
+> **Status:** the PyPI package is not yet published.  Install from source
+> (see [As a PyPI package](#as-a-pypi-package)) or use the plugin directly.
+> Once published: `pip install slopguard`.
 
 ---
 
@@ -34,26 +31,34 @@ slopguard deps-check
 
 ## Installation
 
-### As a Claude Code plugin
+### As a Claude Code / Codex / Grok plugin (hooks-based)
+
+Slop Guard is a **hooks-based plugin**, not an MCP server.  `claude mcp add`
+does not apply.
+
+**Local checkout install:**
 
 ```bash
-claude mcp add slop-guard
+# Clone to a permanent location on your machine
+git clone <repo-url> ~/.local/share/claude/plugins/slop-guard
 ```
 
-Or add to your project's `.claude/settings.json`:
+Then reference the checkout in your `~/.claude/settings.json` or project
+`.claude/settings.json`.  The exact key depends on your Claude Code version;
+the plugin manifest lives at `.claude-plugin/plugin.json` and hook definitions
+at `hooks/hooks.json`.  `CLAUDE_PLUGIN_ROOT` is set by the host to the
+checkout directory; no manual environment setup is required.
 
-```json
-{
-  "plugins": ["slop-guard"]
-}
-```
+**For the omp harness:** reference the checkout path as `"source"` in your
+`.omp-plugin/marketplace.json` plugin entry (see the existing entry in this
+repo for the exact shape).
 
-The plugin root (`CLAUDE_PLUGIN_ROOT`) is set automatically by the host.  The
-`bin/slopguard` CLI is available at `${CLAUDE_PLUGIN_ROOT}/bin/slopguard` for
-all hooks; no `PATH` configuration is needed.
+> **omp adapter caveat:** `extensions/omp.mjs` currently wires only
+> `PreToolUse` and `SessionStart` events.  The fast/medium `PostToolUse`
+> detection tiers and the `Stop` gate are **not** forwarded under omp.
 
-For Codex CLI or Grok, see the `plugin.json` / `.claude-plugin/plugin.json`
-manifests in this repository and your host's plugin documentation.
+**For Codex CLI or Grok:** see `plugin.json` and your host's plugin
+documentation for the installation method.
 
 ### As a PyPI package
 
@@ -70,9 +75,11 @@ tools lockfile) under `slopguard/_plugin/`.  The `slopguard` entry point
 discovers this bundled root automatically — no `SLOPGUARD_PLUGIN_DIR` or
 `CLAUDE_PLUGIN_ROOT` override is required.
 
-**Plugin host and PyPI install co-existence.**  When the host already exports
-`CLAUDE_PLUGIN_ROOT`, the installed entry point honours that value and defers
-to the host's plugin directory.  The two can coexist in the same project.
+**Isolated root:** the installed entry point **always** sets `CLAUDE_PLUGIN_ROOT`
+to the bundled `_plugin/` directory, overwriting any inherited value.  This
+ensures the CLI sources its own assets even when run inside an environment where
+a plugin host has already exported `CLAUDE_PLUGIN_ROOT`.  Plugin hosts invoke
+`bin/slopguard` directly from the checkout; they never call the PyPI entry point.
 
 **Development / source checkout** — use `bin/slopguard` directly; it derives
 its own `PLUGIN_ROOT` from `$SCRIPT_DIR` at startup.  Running `pip install -e .`

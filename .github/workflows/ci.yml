@@ -18,7 +18,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
 
       - name: Install jq (Ubuntu)
         if: runner.os == 'Linux'
@@ -45,9 +45,9 @@ jobs:
           - os: macos-latest
             python-version: "3.12"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b  # v5.3.0
         with:
           python-version: ${{ matrix.python-version }}
 
@@ -59,49 +59,39 @@ jobs:
         if: runner.os == 'macOS'
         run: brew install jq
 
-      - name: Install build + test tools
-        run: pip install build pytest hatchling
-
       - name: Build wheel
-        run: python -m build --wheel
-
-      - name: Install wheel into current environment
-        # Install the just-built wheel so the Python tests can also be run
-        # with SLOPGUARD_TEST_BIN pointing to the installed binary, which
-        # skips the redundant wheel-build inside conftest.py.
-        run: pip install dist/slopguard-*.whl
-
-      - name: Run Python installed-artifact tests
-        env:
-          SLOPGUARD_TEST_BIN: ${{ github.workspace }}/.venv-test/bin/slopguard
         run: |
-          python -m venv .venv-test
-          .venv-test/bin/pip install --quiet dist/slopguard-*.whl pytest
-          SLOPGUARD_TEST_BIN=".venv-test/bin/slopguard" \
-            .venv-test/bin/pytest tests/python/ -v
+          pip install build hatchling
+          python -m build --wheel
+
+      - name: Install wheel and run tests
+        # Install the just-built wheel into the current environment, then tell
+        # the conftest where the binary is so it skips redundant wheel rebuild.
+        run: |
+          pip install pytest dist/slopguard-*.whl
+          SLOPGUARD_TEST_BIN="$(python -c 'import shutil; print(shutil.which("slopguard"))')" \
+            pytest tests/python/ -v
 
   # ── Verify wheel contains expected plugin data ───────────────────────────
   wheel-contents:
     name: Wheel contents check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b  # v5.3.0
         with:
           python-version: "3.12"
 
-      - name: Install build tools
-        run: pip install build hatchling
-
       - name: Build wheel
-        run: python -m build --wheel
+        run: |
+          pip install build hatchling
+          python -m build --wheel
 
       - name: Check wheel contains plugin data
         run: |
-          WHEEL=$(ls dist/slopguard-*.whl)
           python - <<'PY'
-          import zipfile, sys, pathlib
+          import pathlib, sys, zipfile
           wheel = next(pathlib.Path("dist").glob("slopguard-*.whl"))
           with zipfile.ZipFile(wheel) as zf:
               names = set(zf.namelist())

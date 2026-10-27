@@ -9,7 +9,7 @@ name: Publish to PyPI
 #   2. On PyPI, go to the project's "Publishing" tab and add a Trusted Publisher
 #      entry:
 #        Owner:       <your-github-org-or-user>
-#        Repository:  slop-guard        (this repo's name)
+#        Repository:  <this-repo-name>
 #        Workflow:    publish.yml
 #        Environment: pypi-publish
 #   The workflow then publishes without any stored secret.
@@ -19,20 +19,52 @@ on:
     tags:
       - "v[0-9]*.[0-9]*.[0-9]*"
 
+# Default: read-only.  id-token: write is granted only in the publish job.
 permissions:
   contents: read
-  id-token: write   # Required for Trusted Publishing OIDC token exchange
 
 jobs:
-  build:
-    name: Build distribution
+  # ── 1. Tests — bash suite + installed-wheel Python tests on the tag ──────
+  test:
+    name: Test tag
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
         with:
-          fetch-depth: 0   # full history for accurate metadata
+          fetch-depth: 0
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b  # v5.3.0
+        with:
+          python-version: "3.12"
+
+      - name: Install jq
+        run: sudo apt-get install -y jq
+
+      - name: Run bash test suite
+        run: bash tests/run-tests
+
+      - name: Build wheel
+        run: |
+          pip install build hatchling
+          python -m build --wheel
+
+      - name: Install wheel and run Python tests
+        run: |
+          pip install pytest dist/slopguard-*.whl
+          SLOPGUARD_TEST_BIN="$(python -c 'import shutil; print(shutil.which("slopguard"))')" \
+            pytest tests/python/ -v
+
+  # ── 2. Build distribution artefacts (only if tests pass) ─────────────────
+  build:
+    name: Build distribution
+    needs: [test]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b  # v5.3.0
         with:
           python-version: "3.12"
 
@@ -42,13 +74,13 @@ jobs:
       - name: Build wheel and sdist
         run: python -m build
 
-      - name: Verify version tag matches pyproject.toml
-        # Guard against accidentally publishing a stale version.
+      - name: Verify tag matches pyproject.toml version
+        # Guard against publishing a stale version.
         run: |
           TAG="${GITHUB_REF_NAME#v}"
           PYVER="$(python -c "
           import tomllib, pathlib
-          with open('pyproject.toml','rb') as f:
+          with open('pyproject.toml', 'rb') as f:
               data = tomllib.load(f)
           print(data['project']['version'])
           ")"
@@ -58,27 +90,31 @@ jobs:
           fi
           echo "OK: version ${PYVER} matches tag"
 
-      - name: Upload distribution artifacts
-        uses: actions/upload-artifact@v4
+      - name: Upload distribution artefacts
+        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08  # v4.6.0
         with:
           name: dist
           path: dist/
 
+  # ── 3. Publish — runs only after tests + build succeed ───────────────────
   publish:
     name: Publish to PyPI
-    needs: build
+    needs: [build]
     runs-on: ubuntu-latest
     environment: pypi-publish   # matches the Trusted Publisher environment name
+    permissions:
+      contents: read
+      id-token: write           # OIDC token for Trusted Publishing — publish job only
 
     steps:
-      - name: Download distribution artifacts
-        uses: actions/download-artifact@v4
+      - name: Download distribution artefacts
+        uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e  # v4.2.1
         with:
           name: dist
           path: dist/
 
       - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
+        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b  # v1.14.0
         # No password= or token= required — OIDC Trusted Publishing handles auth.
         with:
           print-hash: true
