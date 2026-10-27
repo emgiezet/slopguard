@@ -31,9 +31,9 @@ dependencies = []
 [project.scripts]
 slopguard = "slopguard._cli:main"
 
-# [project.urls] — add once the public repository URL is known.
-# Changelog = "https://…/CHANGELOG.md"
-# Issues    = "https://…/issues"
+[project.urls]
+Repository = "https://github.com/emgiezet/slopguard"
+Issues = "https://github.com/emgiezet/slopguard/issues"
 
 # ---------------------------------------------------------------------------
 # Hatchling — wheel build

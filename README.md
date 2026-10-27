@@ -36,18 +36,18 @@ package so you can call `slopguard` directly from scripts and CI.
 Slop Guard is a **hooks-based plugin**, not an MCP server.  `claude mcp add`
 does not apply.
 
-**Local checkout install:**
+**Local checkout:**
 
 ```bash
-# Clone to a permanent location on your machine
-git clone <repo-url> ~/.local/share/claude/plugins/slop-guard
+git clone https://github.com/emgiezet/slopguard.git ~/.local/share/slopguard
+claude --plugin-dir ~/.local/share/slopguard
+# Or for omp:
+omp --plugin-dir ~/.local/share/slopguard
 ```
 
-Then reference the checkout in your `~/.claude/settings.json` or project
-`.claude/settings.json`.  The exact key depends on your Claude Code version;
-the plugin manifest lives at `.claude-plugin/plugin.json` and hook definitions
-at `hooks/hooks.json`.  `CLAUDE_PLUGIN_ROOT` is set by the host to the
-checkout directory; no manual environment setup is required.
+The checkout contains `.claude-plugin/plugin.json` and `hooks/hooks.json`.
+Plugin hosts set `CLAUDE_PLUGIN_ROOT` to this directory; the PyPI console
+script alone does not install or activate agent hooks.
 
 **For the omp harness:** reference the checkout path as `"source"` in your
 `.omp-plugin/marketplace.json` plugin entry (see the existing entry in this
@@ -375,14 +375,15 @@ PyPI via **Trusted Publishing** (OIDC — no stored API token).
 
 1. In repo Settings → Environments, create an environment named
    `pypi-publish`.  Add a deployment protection rule if desired.
-2. On PyPI, under the `slopguard` project's Publishing tab, add a Trusted
-   Publisher entry:
-   - Owner: `<your-github-org-or-user>`
-   - Repository: `slop-guard` (this repo's name)
+2. In your PyPI account's Publishing settings, create a **pending publisher**
+   for the not-yet-published `slopguard` project:
+   - PyPI project: `slopguard`
+   - GitHub owner: `emgiezet`
+   - Repository: `slopguard`
    - Workflow: `publish.yml`
    - Environment: `pypi-publish`
-3. No secret or API token is needed after this — the workflow handles
-   authentication via OIDC.
+3. Push `v0.6.0` only after the publisher exists. PyPI creates the project
+   on the first successful release; no secret or API token is needed.
 
 ---
 
