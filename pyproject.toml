@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "slopguard"
+name = "aisdlc-guard"
 version = "0.6.0"
 description = "Anti-pattern detection and gate for agent-written code"
 readme = "README.md"

@@ -70,7 +70,7 @@ jobs:
         # Install the just-built wheel into the current environment, then tell
         # the conftest where the binary is so it skips redundant wheel rebuild.
         run: |
-          pip install pytest dist/slopguard-*.whl
+          pip install pytest dist/aisdlc_guard-*.whl
           SLOPGUARD_TEST_BIN="$(python -c 'import shutil; print(shutil.which("slopguard"))')" \
             pytest tests/python/ -v
 
@@ -94,7 +94,7 @@ jobs:
         run: |
           python - <<'PY'
           import pathlib, sys, zipfile
-          wheel = next(pathlib.Path("dist").glob("slopguard-*.whl"))
+          wheel = next(pathlib.Path("dist").glob("aisdlc_guard-*.whl"))
           with zipfile.ZipFile(wheel) as zf:
               names = set(zf.namelist())
           required = [

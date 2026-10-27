@@ -8,7 +8,7 @@ name: Publish to PyPI
 #      the owner-only v* tag ruleset must remain active. Both are configured
 #      in this repository's GitHub settings.
 #   2. The PyPI account owner must create a pending Trusted Publisher for:
-#        Project:     slopguard
+#        Project:     aisdlc-guard
 #        Owner:       emgiezet
 #        Repository:  slopguard
 #        Workflow:    publish.yml
@@ -59,7 +59,7 @@ jobs:
 
       - name: Install wheel and run Python tests
         run: |
-          pip install pytest dist/slopguard-*.whl
+          pip install pytest dist/aisdlc_guard-*.whl
           SLOPGUARD_TEST_BIN="$(python -c 'import shutil; print(shutil.which("slopguard"))')" \
             pytest tests/python/ -v
 
