@@ -111,6 +111,23 @@ bootstrapped_jq=$(
     && ok "jq bootstrap installs and returns the pinned binary" \
     || bad "jq bootstrap" "path='${bootstrapped_jq}', rc=${rc_jq}"
 
+printf '\ninstaller: failed jq bootstrap releases its lock\n'
+FAKE_JQ_MISSING_LOCK="${TEST_WORK}/jq-missing.lock.json"
+jq --arg url "file://${TEST_WORK}/no-jq" \
+    '.tools.jq.assets |= with_entries(.value.url = $url)' \
+    "$FAKE_JQ_LOCK" > "$FAKE_JQ_MISSING_LOCK"
+FAKE_DATA_JQ_FAIL="${TEST_WORK}/plugin-data-jq-fail"
+(
+    TOOLS_LOCK="$FAKE_JQ_MISSING_LOCK"
+    CLAUDE_PLUGIN_DATA="$FAKE_DATA_JQ_FAIL"
+    bootstrap_jq >/dev/null 2>&1
+); rc_jq_fail=$?
+[ "$rc_jq_fail" -ne 0 ] && ok "jq bootstrap fails on missing asset" \
+    || bad "jq bootstrap missing asset" "expected non-zero, got $rc_jq_fail"
+[ ! -e "${FAKE_DATA_JQ_FAIL}/tools/jq/.bootstrap.lock" ] \
+    && ok "jq bootstrap releases lock after failed download" \
+    || bad "jq bootstrap lock" "lock directory remains after failure"
+
 # --------------------------------------------------------------------------- #
 printf 'installer: good hash installs and points current at the version dir\n'
 # --------------------------------------------------------------------------- #

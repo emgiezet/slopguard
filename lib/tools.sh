@@ -82,7 +82,7 @@ _tools_lock() {
 bootstrap_jq() {
     local lock platform version asset_line url expected_hash actual_hash
     local tools_base version_dir current_link download_dir stage_dir new_link
-    local install_lock backup_dir=""
+    local install_lock backup_dir="" cleanup
     lock="$(_tools_lock)" || return 1
     platform="$(detect_platform)" || return 1
     version="$(awk '
@@ -124,11 +124,12 @@ bootstrap_jq() {
     }
     download_dir="$(mktemp -d)" || { rmdir "$install_lock"; return 1; }
     stage_dir="${tools_base}/.${version}.bootstrap.$$"
-    trap 'rm -rf "$download_dir" "$stage_dir"; rmdir "$install_lock" 2>/dev/null || true' RETURN
+    # Bash 3.2 can run RETURN after locals go out of scope; capture paths now.
+    printf -v cleanup 'rm -rf %q %q; rmdir %q 2>/dev/null || true' \
+        "$download_dir" "$stage_dir" "$install_lock"
+    trap "$cleanup" RETURN
     if ! curl -sSL --fail -o "${download_dir}/jq" "$url"; then
         printf 'slopguard: jq bootstrap download failed: %s\n' "$url" >&2
-        rm -rf "$download_dir" "$stage_dir"
-        trap - RETURN
         return 1
     fi
     actual_hash="$(_sha256 "${download_dir}/jq")" || return 1
@@ -592,13 +593,16 @@ install_tool() {
 
     (
         local download_dir stage_dir asset_file asset_name actual_hash
-        local backup_dir="" new_link zip_scratch zip_top_count zip_top
+        local backup_dir="" new_link zip_scratch zip_top_count zip_top cleanup
         download_dir="$(mktemp -d)" || exit 1
         stage_dir="${tools_base}/.${version}.stage.$$"
         asset_file="${download_dir}/asset"
         rm -rf "$stage_dir"
         mkdir -p "$stage_dir"
-        trap 'rm -rf "$download_dir" "$stage_dir"; rmdir "$install_lock" 2>/dev/null || true' EXIT INT TERM HUP
+        # Bash 3.2 runs EXIT after subshell locals expire; capture paths now.
+        printf -v cleanup 'rm -rf %q %q; rmdir %q 2>/dev/null || true' \
+            "$download_dir" "$stage_dir" "$install_lock"
+        trap "$cleanup" EXIT INT TERM HUP
 
         printf 'slopguard: downloading %s %s...\n' "$name" "$version" >&2
         if ! curl -sSL --fail -o "$asset_file" "$url"; then

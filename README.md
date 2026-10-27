@@ -66,11 +66,16 @@ documentation for the installation method.
 (`brew install coreutils`) and put `$(brew --prefix coreutils)/libexec/gnubin`
 on `PATH` for the Bash hooks (`timeout`, `touch -d`, and related commands).
 
+Until the first PyPI release, install the CLI from the standalone repository
+(pin a commit SHA in automated environments):
+
 ```bash
-pip install slopguard
-slopguard doctor              # check which tools are available for your stacks
-slopguard doctor --install    # install pinned tools for detected stacks
+uv tool install git+https://github.com/emgiezet/slopguard.git
+slopguard version
 ```
+
+Once published, `pip install slopguard` or `uv tool install slopguard` works.
+For local tool setup, use `slopguard doctor` and `slopguard doctor --install`.
 
 The wheel bundles the complete plugin tree (hooks, rules, skills, configs,
 tools lockfile) under `slopguard/_plugin/`.  The `slopguard` entry point
