@@ -3,16 +3,17 @@ name: Publish to PyPI
 # Triggered by a version tag push (e.g. v0.7.0).
 # Uses PyPI Trusted Publishing (OIDC) — no API token or secret required.
 #
-# Pre-requisites (owner actions, not automated):
-#   1. Create a GitHub release environment named "pypi-publish" in repo Settings →
-#      Environments.  Add a deployment protection rule (require review) if desired.
-#   2. On PyPI, go to the project's "Publishing" tab and add a Trusted Publisher
-#      entry:
-#        Owner:       <your-github-org-or-user>
-#        Repository:  <this-repo-name>
+# Pre-requisites:
+#   1. The "pypi-publish" environment must require emgiezet's approval, and
+#      the owner-only v* tag ruleset must remain active. Both are configured
+#      in this repository's GitHub settings.
+#   2. The PyPI account owner must create a pending Trusted Publisher for:
+#        Project:     slopguard
+#        Owner:       emgiezet
+#        Repository:  slopguard
 #        Workflow:    publish.yml
 #        Environment: pypi-publish
-#   The workflow then publishes without any stored secret.
+#   No PyPI API token or stored secret is required.
 
 on:
   push:
@@ -32,6 +33,14 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
         with:
           fetch-depth: 0
+
+      - name: Verify tagged commit is on main
+        run: |
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          if ! git merge-base --is-ancestor "${GITHUB_SHA}^{commit}" origin/main; then
+            echo "ERROR: release tag must point to a commit on main"
+            exit 1
+          fi
 
       - uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b  # v5.3.0
         with:

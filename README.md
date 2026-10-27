@@ -358,7 +358,7 @@ SLOPGUARD_TEST_BIN="$(which slopguard)" pytest tests/python/ -v
 
 ## Release process
 
-Slop Guard has two version fields that must be kept in sync:
+Slop Guard has three version fields that must be kept in sync:
 
 | File | Field |
 |---|---|
@@ -374,23 +374,25 @@ Slop Guard has two version fields that must be kept in sync:
 3. Merge the commit to `main`.
 4. Push a tag: `git tag v<version> && git push origin v<version>`.
 
-The `publish.yml` GitHub Actions workflow triggers on the tag, builds the
-wheel and sdist, verifies the tag matches `pyproject.toml`, and publishes to
-PyPI via **Trusted Publishing** (OIDC — no stored API token).
+The `publish.yml` GitHub Actions workflow triggers on a release tag whose
+commit is on `main`, runs the tests, verifies the tag matches `pyproject.toml`,
+builds the wheel and sdist, and publishes to PyPI via **Trusted Publishing**
+(OIDC — no stored API token). The repository's owner-only `v*` tag ruleset
+and required `emgiezet` review on the `pypi-publish` environment protect this
+workflow; do not remove either control.
 
 **First-time PyPI setup (owner action):**
 
-1. In repo Settings → Environments, create an environment named
-   `pypi-publish`.  Add a deployment protection rule if desired.
-2. In your PyPI account's Publishing settings, create a **pending publisher**
+1. In your PyPI account's Publishing settings, create a **pending publisher**
    for the not-yet-published `slopguard` project:
    - PyPI project: `slopguard`
    - GitHub owner: `emgiezet`
    - Repository: `slopguard`
    - Workflow: `publish.yml`
    - Environment: `pypi-publish`
-3. Push `v0.6.0` only after the publisher exists. PyPI creates the project
-   on the first successful release; no secret or API token is needed.
+2. Only after the publisher exists, push `v0.6.0` pointing at `main`. Approve
+   the GitHub environment deployment when prompted. PyPI creates the project
+   on the first successful release.
 
 ---
 
