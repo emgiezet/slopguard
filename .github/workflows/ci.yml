@@ -1,0 +1,121 @@
+name: CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  # ── Bash unit + integration test suite ──────────────────────────────────
+  bash-tests:
+    name: Bash tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install jq (Ubuntu)
+        if: runner.os == 'Linux'
+        run: sudo apt-get install -y jq
+
+      - name: Install jq (macOS)
+        if: runner.os == 'macOS'
+        run: brew install jq
+
+      - name: Run bash test suite
+        run: bash tests/run-tests
+
+  # ── Python package — build, install, pytest ──────────────────────────────
+  python-package:
+    name: Python ${{ matrix.python-version }} / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.10", "3.11", "3.12"]
+        os: [ubuntu-latest]
+        include:
+          # Smoke-test on macOS with the latest Python only.
+          - os: macos-latest
+            python-version: "3.12"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install jq (Ubuntu)
+        if: runner.os == 'Linux'
+        run: sudo apt-get install -y jq
+
+      - name: Install jq (macOS)
+        if: runner.os == 'macOS'
+        run: brew install jq
+
+      - name: Install build + test tools
+        run: pip install build pytest hatchling
+
+      - name: Build wheel
+        run: python -m build --wheel
+
+      - name: Install wheel into current environment
+        # Install the just-built wheel so the Python tests can also be run
+        # with SLOPGUARD_TEST_BIN pointing to the installed binary, which
+        # skips the redundant wheel-build inside conftest.py.
+        run: pip install dist/slopguard-*.whl
+
+      - name: Run Python installed-artifact tests
+        env:
+          SLOPGUARD_TEST_BIN: ${{ github.workspace }}/.venv-test/bin/slopguard
+        run: |
+          python -m venv .venv-test
+          .venv-test/bin/pip install --quiet dist/slopguard-*.whl pytest
+          SLOPGUARD_TEST_BIN=".venv-test/bin/slopguard" \
+            .venv-test/bin/pytest tests/python/ -v
+
+  # ── Verify wheel contains expected plugin data ───────────────────────────
+  wheel-contents:
+    name: Wheel contents check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install build tools
+        run: pip install build hatchling
+
+      - name: Build wheel
+        run: python -m build --wheel
+
+      - name: Check wheel contains plugin data
+        run: |
+          WHEEL=$(ls dist/slopguard-*.whl)
+          python - <<'PY'
+          import zipfile, sys, pathlib
+          wheel = next(pathlib.Path("dist").glob("slopguard-*.whl"))
+          with zipfile.ZipFile(wheel) as zf:
+              names = set(zf.namelist())
+          required = [
+              "slopguard/_plugin/bin/slopguard",
+              "slopguard/_plugin/lib/deps.sh",
+              "slopguard/_plugin/hooks/hooks.json",
+              "slopguard/_plugin/rules/catalog.yaml",
+              "slopguard/_plugin/.claude-plugin/plugin.json",
+              "slopguard/_cli.py",
+          ]
+          missing = [p for p in required if p not in names]
+          if missing:
+              print("MISSING from wheel:", *missing, sep="\n  ")
+              sys.exit(1)
+          print(f"OK — wheel has {len(names)} entries, all required files present.")
+          PY
