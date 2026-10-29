@@ -4,6 +4,10 @@ All notable changes to Slop Guard will be documented in this file.
 
 ## Unreleased
 
+## 0.6.1 — 2026-10-29
+
+- First PyPI publication: update the OIDC publisher to v1.14.3 so its Twine 7 accepts the wheel's Core Metadata 2.5. The v0.6.0 tag's earlier publish attempt failed before upload.
+
 ## 0.6.0 — 2026-10-29
 
 - PyPI distribution is `aisdlc-guard` to avoid PyPI's name-similarity block; the installed command and plugin remain `slopguard` and `slop-guard`.
