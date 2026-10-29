@@ -3,6 +3,9 @@
 All notable changes to Slop Guard will be documented in this file.
 
 ## Unreleased
+
+## 0.6.0 — 2026-10-29
+
 - PyPI distribution is `aisdlc-guard` to avoid PyPI's name-similarity block; the installed command and plugin remain `slopguard` and `slop-guard`.
 - **Double-cast detection, AP-AGENT-011, deslop duplicate check — and the Opengrep pass actually runs** (2026-10-20, #63)
   - `rules/opengrep/react.yaml`: `slopguard.ts.double-cast` matches `$X as unknown as $T` and `<$T>(<unknown>$X)` → AP-TS-MAINT-001, severity `error` (a single `as` stays `warn` via ESLint). The catalogue entry's `detect:` and `bad:`/`good:` show the validate → widen → assert-back detour. Fixtures `tests/fixtures/ts/{bad,good}/AP-TS-MAINT-001.ts`: 3 hits / 0 hits against opengrep 1.30.0.
