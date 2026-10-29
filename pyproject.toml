@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "aisdlc-guard"
-version = "0.6.0"
+version = "0.6.1"
 description = "Anti-pattern detection and gate for agent-written code"
 readme = "README.md"
 license = { file = "LICENSE" }

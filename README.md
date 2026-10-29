@@ -358,17 +358,18 @@ SLOPGUARD_TEST_BIN="$(which slopguard)" pytest tests/python/ -v
 
 ## Release process
 
-Slop Guard has three version fields that must be kept in sync:
+Slop Guard has four version fields that must be kept in sync:
 
 | File | Field |
 |---|---|
 | `pyproject.toml` | `[project] version` |
 | `.claude-plugin/plugin.json` | `"version"` |
 | `plugin.json` | `"version"` |
+| `package.json` | `"version"` |
 
 **To release a new version:**
 
-1. Bump the version string in all three files in a single commit.
+1. Bump the version string in all four files in a single commit.
 2. Update `CHANGELOG.md`: move `## Unreleased` items under a new
    `## <version> — <date>` heading.
 3. Merge the commit to `main`.
@@ -390,7 +391,7 @@ workflow; do not remove either control.
    - Repository: `slopguard`
    - Workflow: `publish.yml`
    - Environment: `pypi-publish`
-2. Only after the publisher exists, push `v0.6.0` pointing at `main`. Approve
+2. Only after the publisher exists, push `v0.6.1` pointing at `main`. Approve
    the GitHub environment deployment when prompted. PyPI creates the project
    on the first successful release.
 
