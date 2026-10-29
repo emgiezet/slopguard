@@ -8,9 +8,8 @@ background medium-tier check after each edit batch, and a slow gate at turn end
 before the agent declares completion.  It also ships as a standalone PyPI
 package so you can call `slopguard` directly from scripts and CI.
 
-> **Status:** the PyPI package is not yet published.  Install from source
-> (see [As a PyPI package](#as-a-pypi-package)) or use the plugin directly.
-> Once published: `pip install aisdlc-guard` (command: `slopguard`).
+Install the [PyPI distribution](https://pypi.org/project/aisdlc-guard/)
+as `aisdlc-guard`; its executable remains `slopguard`.
 
 ---
 
@@ -66,16 +65,25 @@ documentation for the installation method.
 (`brew install coreutils`) and put `$(brew --prefix coreutils)/libexec/gnubin`
 on `PATH` for the Bash hooks (`timeout`, `touch -d`, and related commands).
 
-Until the first PyPI release, install the CLI from the standalone repository
-(pin a commit SHA in automated environments):
+Install the CLI from PyPI:
 
 ```bash
-uv tool install git+https://github.com/emgiezet/slopguard.git
+uv tool install aisdlc-guard
 slopguard version
 ```
 
-Once published, `pip install aisdlc-guard` or `uv tool install aisdlc-guard` works.
-For local tool setup, use `slopguard doctor` and `slopguard doctor --install`.
+Alternatively, `pip install aisdlc-guard` installs the same command into
+your Python environment. For a tool previously installed from the Git
+repository as `slopguard`, run `uv tool uninstall slopguard` before
+`uv tool install aisdlc-guard`. For local tool setup, use `slopguard doctor`
+and `slopguard doctor --install`.
+
+To check the current project's dependencies against registries, opt in to
+network access:
+
+```bash
+CLAUDE_PLUGIN_OPTION_ALLOW_NETWORK=true slopguard deps-check .
+```
 
 The wheel bundles the complete plugin tree (hooks, rules, skills, configs,
 tools lockfile) under `slopguard/_plugin/`.  The `slopguard` entry point
@@ -382,18 +390,10 @@ builds the wheel and sdist, and publishes to PyPI via **Trusted Publishing**
 and required `emgiezet` review on the `pypi-publish` environment protect this
 workflow; do not remove either control.
 
-**First-time PyPI setup (owner action):**
-
-1. In your PyPI account's Publishing settings, create a **pending publisher**
-   for the not-yet-published `aisdlc-guard` distribution (the command stays `slopguard`):
-   - PyPI project: `aisdlc-guard`
-   - GitHub owner: `emgiezet`
-   - Repository: `slopguard`
-   - Workflow: `publish.yml`
-   - Environment: `pypi-publish`
-2. Only after the publisher exists, push `v0.6.1` pointing at `main`. Approve
-   the GitHub environment deployment when prompted. PyPI creates the project
-   on the first successful release.
+**PyPI publisher:** `aisdlc-guard` uses Trusted Publishing from the
+`emgiezet/slopguard` repository, `publish.yml` workflow and `pypi-publish`
+environment. The repository owner must approve each deployment in GitHub
+Actions before PyPI receives the release.
 
 ---
 
